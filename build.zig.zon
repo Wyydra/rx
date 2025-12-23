@@ -1,0 +1,13 @@
+.{
+    .name = .rx,
+    .version = "0.0.0",
+    .fingerprint = 0x20ef08598c3ef7e, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
