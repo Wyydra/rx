@@ -18,9 +18,9 @@
       in
       {
         devShells.default = pkgs.mkShell { 
-            packages = with pkgs; [ zig ]; 
+            packages = with pkgs; [ zig zls ]; 
             shellHook = ''
-              export ZIG_GLOBAL_CACHE_DIR=zig-global
+              export ZIG_GLOBAL_CACHE_DIR=.zig-cache
               echo $ZIG_GLOBAL_CACHE_DIR
               '';
         };
