@@ -1,20 +1,24 @@
 const std = @import("std");
 
 pub const Opcode = enum (u8) {
-    MOVE,       // R(A) = R(B)
+    // MOVE,       // R(A) = R(B)
     LOADK,      // R(A) = K(Bx)
-    LOADNIL,    // R(A) = nil
-    LOADBOOL,   // R(A) = bool(B)
+    // LOADNIL,    // R(A) = nil
+    // LOADBOOL,   // R(A) = bool(B)
     
     ADD,        // R(A) = R(B) + R(C)
-    SUB,        // R(A) = R(B) - R(C)
+    // SUB,        // R(A) = R(B) - R(C)
+    
+    RET,        // RETURN R(A)
+    
+    PRINT,      // PRINT R(1)
 };
 
 pub const Instruction = packed struct {
     opcode: u8,
     A: u8,
-    C: u8,
     B: u8,
+    C: u8,
 
     pub fn ABC(op: Opcode, a: u8, b: u8, c: u8) Instruction {
         return .{
@@ -30,7 +34,7 @@ pub const Instruction = packed struct {
     }
 
     pub fn getBx(self:Instruction) u16 {
-        return (@as(u16, self.B) << 8) | @as(u16, self.C);
+        return (@as(u16, self.C) << 8) | @as(u16, self.B);
     }
 
     pub fn encode(self: Instruction) u32 {
@@ -51,6 +55,9 @@ pub const Instruction = packed struct {
         switch (op) {
             .LOADK => {
                 try writer.print("R\x1b[32m{d}\x1b[0m K\x1b[33m{d}\x1b[0m", .{self.A, self.getBx()});
+            },
+            .RET => {
+                try writer.print("R\x1b[32m{d}\x1b[0m", .{self.A});
             },
             .MOVE => {
                 try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{self.A, self.B});
