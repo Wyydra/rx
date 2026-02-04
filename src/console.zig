@@ -1,7 +1,7 @@
 const std = @import("std");
 const rx = @import("rx");
 
-fn consoleHandler(ctx: ?*anyopaque, msg: rx.memory.Value) void {
+fn consoleHandler(ctx: ?*anyopaque, msg: rx.memory.Value) callconv(.c) void {
     _ = ctx;
     std.debug.print("{f}\n", .{msg});
 }

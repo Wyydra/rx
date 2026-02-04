@@ -16,9 +16,17 @@ pub fn main() !void {
     // ---------------------------------------------------------
     // ACTOR 1: CONSOLE PORT (PID will be <0:1> / Raw: 1)
     // ---------------------------------------------------------
-    var console = ConsolePort.create();
+    // Dynamic loading of C console port
+    var lib = try std.DynLib.open("src/libc_console.so");
+    // defer lib.close();
+
+    const create_fn = lib.lookup(*const fn (*rx.vm.Port) callconv(.c) void, "create_console_port") orelse return error.SymbolNotFound;
+    var console: rx.vm.Port = undefined;
+    create_fn(&console);
+
+    // var console = ConsolePort.create();
     const console_id = try sched.spawnReceiver(console.asReceiver());
-    std.debug.print("Spawned Console  -> PID {f}\n", .{console_id});
+    std.debug.print("Spawned Console (Dynamic) -> PID {f}\n", .{console_id});
 
     // ---------------------------------------------------------
     // ACTOR 2: THE RECEIVER (PID will be <0:2> / Raw: 2)
@@ -65,8 +73,8 @@ pub fn main() !void {
     // ---------------------------------------------------------
 
     var constants_send = [_]rx.memory.Value{
-        rx.memory.Value.integer(2), // K0: Receiver PID 
-        rx.memory.Value.integer(99), 
+        rx.memory.Value.integer(2), // K0: Receiver PID
+        rx.memory.Value.integer(99),
     };
 
     var code_send = [_]u8{
