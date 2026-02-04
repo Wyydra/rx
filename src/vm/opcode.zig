@@ -5,12 +5,15 @@ pub const Opcode = enum (u8) {
     LOADK,      // R(A) = K(Bx)
     // LOADNIL,    // R(A) = nil
     // LOADBOOL,   // R(A) = bool(B)
-    
+
+    SEND,
+    RECV,
+
     ADD,        // R(A) = R(B) + R(C)
     // SUB,        // R(A) = R(B) - R(C)
-    
+
     RET,        // RETURN R(A)
-    
+
     PRINT,      // PRINT R(1)
 };
 
@@ -56,7 +59,7 @@ pub const Instruction = packed struct {
             .LOADK => {
                 try writer.print("R\x1b[32m{d}\x1b[0m K\x1b[33m{d}\x1b[0m", .{self.A, self.getBx()});
             },
-            .RET => {
+            .RET, .SEND, .RECV => {
                 try writer.print("R\x1b[32m{d}\x1b[0m", .{self.A});
             },
             .MOVE => {

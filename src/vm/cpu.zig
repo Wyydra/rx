@@ -4,6 +4,7 @@ const Closure = @import("../memory/closure.zig");
 const Function = @import("../memory/function.zig");
 const Instruction = @import("opcode.zig").Instruction;
 const Value = @import("../memory/value.zig").Value;
+const ActorId = @import("actor.zig").ActorId;
 
 // TODO: old struct remake it 
 pub const ExecutionResult = packed struct {
@@ -101,7 +102,7 @@ pub const ExecutionResult = packed struct {
     }
 };
 
-pub fn run(proc: *Process, limit: usize) ExecutionResult {
+pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
     var budget = limit;
 
     var stack = proc.stack.items;
@@ -127,12 +128,35 @@ pub fn run(proc: *Process, limit: usize) ExecutionResult {
         const instr = Instruction.decode(raw_instr);
         ip += 4; 
 
-        std.debug.print("executing: {}\n", .{instr.getOpcode()});
-
         switch (instr.getOpcode()) {
             .PRINT => {
                 const val = stack[base + instr.A];
                 std.debug.print("> {f}\n", .{val});
+            },
+            .SEND => {
+                // SEND R(A), R(B)
+                // R(A) = Target PID
+                // R(B) = Message Payload
+                const id_val = stack[base + instr.A];
+                const msg_val = stack[base + instr.B];
+
+                if(!id_val.isInteger()) return ExecutionResult.err(.invalid_instruction);
+
+                const raw_id = id_val.asInteger() catch unreachable;
+
+                const target = ActorId.fromInt(@intCast(raw_id));
+
+                scheduler.send(target, msg_val);
+            },
+            .RECV => {
+                if (proc.pop()) |msg| {
+                    stack[base + instr.A] = msg;
+                } else {
+                    // rewind
+                    ip -= 4;
+                    proc.frames.items[proc.frames.items.len - 1].return_ip = ip;
+                    return ExecutionResult.waiting(.message, 0);
+                }
             },
             .LOADK => {
                 // R[A] = Constants[Bx]
