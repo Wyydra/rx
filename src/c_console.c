@@ -38,6 +38,8 @@ void console_handler(void* ctx, Value msg) {
     
     uint8_t tag = msg.bits & TAG_MASK;
     uint64_t payload = msg.bits >> TAG_BITS;
+
+    printf("C: ");
     
     switch (tag) {
         case TAG_NIL:
