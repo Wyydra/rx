@@ -6,7 +6,7 @@ const Instruction = @import("opcode.zig").Instruction;
 const Value = @import("../memory/value.zig").Value;
 const ActorId = @import("actor.zig").ActorId;
 
-// TODO: old struct remake it 
+// TODO: old struct remake it
 pub const ExecutionResult = packed struct {
     state: State,
     cost_or_error: u6,
@@ -126,7 +126,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
 
         const raw_instr = std.mem.readInt(u32, code[ip..][0..4], .little); // TODO: ugly
         const instr = Instruction.decode(raw_instr);
-        ip += 4; 
+        ip += 4;
 
         switch (instr.getOpcode()) {
             .PRINT => {
@@ -140,7 +140,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const id_val = stack[base + instr.A];
                 const msg_val = stack[base + instr.B];
 
-                if(!id_val.isInteger()) return ExecutionResult.err(.invalid_instruction);
+                if (!id_val.isInteger()) return ExecutionResult.err(.invalid_instruction);
 
                 const raw_id = id_val.asInteger() catch unreachable;
 
@@ -171,6 +171,38 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const res = (b.asInteger() catch 0) + (c.asInteger() catch 0);
                 stack[base + instr.A] = Value.integer(res);
             },
+            .SUB => {
+                // R[A] = R[B] - R[C]
+                const b = stack[base + instr.B];
+                const c = stack[base + instr.C];
+
+                const res = (b.asInteger() catch 0) - (c.asInteger() catch 0);
+                stack[base + instr.A] = Value.integer(res);
+            },
+            .LT => {
+                // R[A] = R[B] < R[C]
+                const b = stack[base + instr.B];
+                const c = stack[base + instr.C];
+
+                const res = (b.asInteger() catch 0) < (c.asInteger() catch 0);
+                stack[base + instr.A] = Value.boolean(res);
+            },
+            .GT => {
+                // R[A] = R[B] > R[C]
+                const b = stack[base + instr.B];
+                const c = stack[base + instr.C];
+
+                const res = (b.asInteger() catch 0) > (c.asInteger() catch 0);
+                stack[base + instr.A] = Value.boolean(res);
+            },
+            .JF => {
+                // JUMP if R(A) is false
+                const a = stack[base + instr.A];
+
+                if (!(a.asBoolean() catch return ExecutionResult.err(.invalid_instruction))) {
+                    ip += instr.getBx();
+                }
+            },
             .RET => {
                 // RETURN A
                 const result = stack[base + instr.A];
@@ -182,7 +214,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 }
 
                 // restore parent
-                frames = proc.frames.items; 
+                frames = proc.frames.items;
                 frame_idx -= 1;
                 frame = &frames[frame_idx];
 
@@ -199,12 +231,43 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 code = Function.getCode(function);
                 constants = Function.getConstants(function);
             },
+            .CALL => {
+                // CALL R(A) R(B)
+                // R(A) = Closure
+                // B-1 args
+                const closure_idx = base + instr.A;
+                const closure_val = stack[closure_idx];
+
+                if (!closure_val.isClosure()) return ExecutionResult.err(.invalid_instruction);
+                const closure_obj = closure_val.asClosure() catch unreachable;
+
+                const new_base = closure_idx + 1;
+
+                proc.frames.append(proc.allocator, .{
+                    .base = new_base,
+                    .return_ip = ip,
+                    .closure = closure_obj,
+                }) catch return ExecutionResult.err(.out_of_memory);
+
+                // Update implementation state
+                frames = proc.frames.items;
+                frame_idx = frames.len - 1;
+                frame = &frames[frame_idx];
+
+                base = frame.base;
+
+                closure = closure_obj;
+                function = Closure.getFunction(closure);
+                code = Function.getCode(function);
+                constants = Function.getConstants(function);
+                ip = 0;
+            },
         }
 
         budget -= 1; // TODO: reduction depends on the instruction type
-    } 
+    }
     frame.return_ip = ip;
 
-    const val: u8 =  @intCast(limit - budget);
+    const val: u8 = @intCast(limit - budget);
     return ExecutionResult.normal(val);
 }

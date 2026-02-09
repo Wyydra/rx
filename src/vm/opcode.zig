@@ -1,20 +1,26 @@
 const std = @import("std");
 
-pub const Opcode = enum (u8) {
+pub const Opcode = enum(u8) {
     // MOVE,       // R(A) = R(B)
-    LOADK,      // R(A) = K(Bx)
+    LOADK, // R(A) = K(Bx)
     // LOADNIL,    // R(A) = nil
     // LOADBOOL,   // R(A) = bool(B)
 
     SEND,
     RECV,
 
-    ADD,        // R(A) = R(B) + R(C)
-    // SUB,        // R(A) = R(B) - R(C)
+    ADD, // R(A) = R(B) + R(C)
+    SUB, // R(A) = R(B) - R(C)
 
-    RET,        // RETURN R(A)
+    LT, // R(A) = R(B) < R(C)
+    GT, // R(A) = R(B) > R(C)
 
-    PRINT,      // PRINT R(1)
+    JF, // JUMP if R(A) is false
+
+    CALL, // CALL R(A) B
+    RET, // RETURN R(A)
+
+    PRINT, // PRINT R(1)
 };
 
 pub const Instruction = packed struct {
@@ -36,7 +42,7 @@ pub const Instruction = packed struct {
         return @enumFromInt(self.opcode);
     }
 
-    pub fn getBx(self:Instruction) u16 {
+    pub fn getBx(self: Instruction) u16 {
         return (@as(u16, self.C) << 8) | @as(u16, self.B);
     }
 
@@ -57,18 +63,18 @@ pub const Instruction = packed struct {
 
         switch (op) {
             .LOADK => {
-                try writer.print("R\x1b[32m{d}\x1b[0m K\x1b[33m{d}\x1b[0m", .{self.A, self.getBx()});
+                try writer.print("R\x1b[32m{d}\x1b[0m K\x1b[33m{d}\x1b[0m", .{ self.A, self.getBx() });
             },
             .RET, .SEND, .RECV => {
                 try writer.print("R\x1b[32m{d}\x1b[0m", .{self.A});
             },
             .MOVE => {
-                try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{self.A, self.B});
+                try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{ self.A, self.B });
             },
             else => {
                 // ABC format
-                try writer.print("R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m", .{self.A, self.B, self.C});
-            }
+                try writer.print("R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m", .{ self.A, self.B, self.C });
+            },
         }
     }
 };

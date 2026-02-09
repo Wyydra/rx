@@ -11,11 +11,13 @@ pub const Assembler = struct {
 
     code: std.ArrayList(u8),
 
+    heap: *Heap,
     constants: std.ArrayList(Value),
 
-    pub fn init(allocator: std.mem.Allocator) Assembler {
+    pub fn init(allocator: std.mem.Allocator, heap: *Heap) Assembler {
         return .{
             .allocator = allocator,
+            .heap = heap,
             .code = .empty,
             .constants = .empty,
         };
@@ -26,21 +28,27 @@ pub const Assembler = struct {
         self.constants.deinit(self.allocator);
     }
 
-     pub fn emit(self: *Assembler, op: Opcode, a: u8, b: u8, c: u8) !void {
-        try self.code.append(self.allocator,@intFromEnum(op));
-        try self.code.append(self.allocator,a);
-        try self.code.append(self.allocator,b);
-        try self.code.append(self.allocator,c);
+    pub fn emit(self: *Assembler, op: Opcode, a: u8, b: u8, c: u8) !void {
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, a);
+        try self.code.append(self.allocator, b);
+        try self.code.append(self.allocator, c);
     }
 
-     pub fn loadConstant(self: *Assembler, reg: u8, val: Value) !void {
-         const len = self.constants.items.len;
-         try self.constants.append(self.allocator, val);
+    pub fn loadConstant(self: *Assembler, reg: u8, val: Value) !void {
+        const len = self.constants.items.len;
+        try self.constants.append(self.allocator, val);
 
-         if (len > std.math.maxInt(u32)) return error.TooManyConstants;
+        if (len > std.math.maxInt(u32)) return error.TooManyConstants;
 
-         try self.emit(.LOADK, reg, @intCast(len), 0);
-     }
+        try self.emit(.LOADK, reg, @intCast(len), 0);
+    }
+
+    pub fn loadString(self: *Assembler, reg: u8, str: []const u8) !void {
+        const String = @import("../memory/string.zig");
+        const obj = try String.alloc(self.heap, str);
+        try self.loadConstant(reg, Value.pointer(obj));
+    }
 
     pub fn send(self: *Assembler, target_reg: u8, msg_reg: u8) !void {
         try self.emit(.SEND, target_reg, msg_reg, 0);
@@ -59,13 +67,9 @@ pub const Assembler = struct {
     }
 
     pub fn compileToClosure(self: *Assembler, heap: *Heap) !*HeapObject {
-        const func_obj = try Function.alloc(
-            heap, 
-            0, // Arity (params) - Default 0
+        const func_obj = try Function.alloc(heap, 0, // Arity (params) - Default 0
             0, // Upvalues - Default 0
-            self.code.items, 
-            self.constants.items
-        );
+            self.code.items, self.constants.items);
 
         return try Closure.alloc(heap, func_obj, 0);
     }

@@ -12,6 +12,7 @@ pub const Heap = struct {
     buffer: []u8,
     offset: usize,
     objects: std.ArrayList(*HeapObject),
+    strings: std.StringHashMap(*HeapObject),
     capacity: usize,
 
     pub const DEFAULT_SIZE: usize = 1024 * 1024; // 1MB
@@ -23,59 +24,52 @@ pub const Heap = struct {
         var objects: std.ArrayList(*HeapObject) = .empty;
         errdefer objects.deinit(allocator);
 
+        var strings = std.StringHashMap(*HeapObject).init(allocator);
+        errdefer strings.deinit();
+
         return Heap{
             .allocator = allocator,
             .buffer = buffer,
             .offset = 0,
             .objects = objects,
+            .strings = strings,
             .capacity = size,
         };
     }
 
     pub fn deinit(self: *Heap) void {
         self.objects.deinit(self.allocator);
+        self.strings.deinit();
         self.allocator.free(self.buffer);
     }
 
     pub fn reset(self: *Heap) void {
         self.offset = 0;
         self.objects.clearRetainingCapacity();
+        self.strings.clearRetainingCapacity();
     }
 
-    fn alloc(self: *Heap, size: usize) !*HeapObject {
-        const aligned_size = std.mem.alignForward(usize, size, 8);
+    pub fn alloc(self: *Heap, kind: HeapObject.Kind, payload_size: usize) !*HeapObject {
+        const total_size = @sizeOf(HeapObject) + payload_size;
 
-        if (self.offset + aligned_size > self.capacity) {
+        const aligned_size = std.mem.alignForward(usize, total_size, 8);
+
+        if (self.offset + aligned_size > self.buffer.len) {
             return error.OutOfMemory;
         }
 
-        const ptr = @as(*HeapObject, @ptrCast(@alignCast(&self.buffer[self.offset])));
-
-        std.debug.assert(@intFromPtr(ptr) % 8 == 0);
+        const ptr_int = @intFromPtr(self.buffer.ptr) + self.offset;
+        const obj: *HeapObject = @ptrFromInt(ptr_int);
 
         self.offset += aligned_size;
-
-        try self.objects.append(self.allocator, ptr);
-
-        return ptr;
-    }
-
-    pub fn allocAndInitHeader(self: *Heap, kind: HeapObject.Kind, size: u48) !*HeapObject {
-        const header_size = @sizeOf(HeapObject);
-
-        const data_size: usize = switch (kind) {
-            .closure => @sizeOf(u64) + (size * @sizeOf(Value)),
-            .function => size,
-        };
-
-        const total_size = header_size + data_size;
-        const obj = try self.alloc(total_size);
 
         obj.* = HeapObject{
             .kind = kind,
             .flags = 0,
-            .size = size,
+            .size = @intCast(payload_size),
         };
+
+        try self.objects.append(self.allocator, obj);
 
         return obj;
     }

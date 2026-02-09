@@ -6,6 +6,7 @@ const Value = @import("../memory/value.zig").Value;
 const Receiver = @import("interface.zig").Receiver;
 const DoublyLinkedList = std.DoublyLinkedList;
 const ActorId = @import("actor.zig").ActorId;
+const System = @import("system.zig").System;
 
 pub const Scheduler = struct {
     registry: std.AutoHashMap(ActorId, Receiver),
@@ -13,6 +14,7 @@ pub const Scheduler = struct {
     waiting_queue: DoublyLinkedList,
 
     allocator: std.mem.Allocator,
+    system: *System,
 
     // Generator state
     id: u8,
@@ -20,12 +22,13 @@ pub const Scheduler = struct {
 
     const REDUCTION_LIMIT = 2000;
 
-    pub fn init(allocator: std.mem.Allocator, id: u8) Scheduler {
+    pub fn init(allocator: std.mem.Allocator, id: u8, system: *System) Scheduler {
         return .{
             .registry = .init(allocator),
             .run_queue = .{},
             .waiting_queue = .{},
             .allocator = allocator,
+            .system = system,
             .id = id,
             .local_counter = 0,
         };
@@ -119,6 +122,10 @@ pub const Scheduler = struct {
                 },
             }
         }
+    }
+
+    pub fn resolve(self: *Scheduler, name: []const u8) ?ActorId {
+        return self.system.resolve(name);
     }
 
     fn nextId(self: *Scheduler) ActorId {

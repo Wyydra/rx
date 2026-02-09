@@ -1,9 +1,11 @@
 const std = @import("std");
+const String = @import("string.zig");
 
 pub const HeapObject = struct {
-    pub const Kind = enum (u8) {
+    pub const Kind = enum(u8) {
         closure,
         function,
+        string,
     };
 
     size: u48,
@@ -101,6 +103,12 @@ pub const Value = packed struct {
         return obj.kind == .closure;
     }
 
+    pub fn isString(self: Value) bool {
+        if (!self.isPointer()) return false;
+        const obj = self.asPointer() catch return false;
+        return obj.kind == .string;
+    }
+
     pub fn asBoolean(self: Value) !bool {
         if (self.getTag() != .boolean) return error.TypeError;
         const payload = self.bits >> TAG_BITS;
@@ -121,8 +129,27 @@ pub const Value = packed struct {
         return ptr;
     }
 
+    pub fn asClosure(self: Value) !*HeapObject {
+        if (!self.isClosure()) return error.TypeError;
+        return self.asPointer();
+    }
+
+    pub fn asString(self: Value) ![]const u8 {
+        if (!self.isString()) return error.TypeError;
+        const obj = try self.asPointer();
+        return String.getChars(obj);
+    }
+
     pub fn equals(self: Value, other: Value) bool {
         if (self.bits == other.bits) return true;
+
+        if (self.isString() and other.isString()) {
+            // Since strings are interned, pointer equality is sufficient!
+            const obj1 = self.asPointer() catch unreachable;
+            const obj2 = other.asPointer() catch unreachable;
+            return obj1 == obj2;
+        }
+
         if (self.getTag() != other.getTag()) return false;
         // For now, only bit-equality
         // TODO: add deep equality for heap objects
@@ -145,7 +172,12 @@ pub const Value = packed struct {
             },
             .pointer => {
                 const obj = self.asPointer() catch unreachable;
-                try writer.print("{s}<{*}>", .{ @tagName(obj.kind), obj });
+                if (obj.kind == .string) {
+                    const s = self.asString() catch unreachable;
+                    try writer.print("\"{s}\"", .{s});
+                } else {
+                    try writer.print("{s}<{*}>", .{ @tagName(obj.kind), obj });
+                }
                 // TODO pretty-print contents based on heap object type
             },
         }

@@ -13,10 +13,9 @@ pub fn alloc(heap: *Heap, function: *HeapObject, env_count: u32) HeapError!*Heap
     // strict check: ensure we are actually wrapping a Function object
     std.debug.assert(function.kind == .function);
 
-    // We reuse the existing logic in heap.zig for .closure size:
-    // It allocates: @sizeOf(u64) + (env_count * @sizeOf(Value))
-    // Since a pointer is 64-bit (@sizeOf(*HeapObject) == 8), the size calculation is correct.
-    const obj = try heap.allocAndInitHeader(.closure, env_count);
+    const payload_size = @sizeOf(u64) + (env_count * @sizeOf(Value));
+
+    const obj = try heap.alloc(.closure, payload_size);
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
     const func_slot = @as(* *HeapObject, @ptrCast(@alignCast(payload_ptr)));
@@ -24,7 +23,6 @@ pub fn alloc(heap: *Heap, function: *HeapObject, env_count: u32) HeapError!*Heap
     func_slot.* = function;
 
     if (env_count > 0) {
-        // Offset = Header + FunctionPtr
         const env_offset = @sizeOf(HeapObject) + @sizeOf(*HeapObject);
         const env_ptr = @as([*]Value, @ptrCast(@alignCast(@as([*]u8, @ptrCast(obj)) + env_offset)));
 

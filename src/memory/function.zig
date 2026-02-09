@@ -23,7 +23,7 @@ pub fn alloc(
 
     const total_size = meta_size + consts_size + code_size;
 
-    const obj = try heap.allocAndInitHeader(.function, @intCast(total_size));
+    const obj = try heap.alloc(.function, @intCast(total_size));
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
 

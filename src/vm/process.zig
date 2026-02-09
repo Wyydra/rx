@@ -44,8 +44,8 @@ pub const Process = struct {
 
         self.allocator = allocator;
 
-        try self.stack.append(allocator,Value.pointer(main_closure));
-        try self.stack.appendNTimes(allocator, Value.nil(), 20); 
+        try self.stack.append(allocator, Value.pointer(main_closure));
+        try self.stack.appendNTimes(allocator, Value.nil(), 20);
 
         try self.frames.append(allocator, .{
             .base = 1,
@@ -60,15 +60,15 @@ pub const Process = struct {
         self.stack.deinit(self.allocator);
         self.frames.deinit(self.allocator);
         self.mailbox.deinit(self.allocator);
-        self.allocator.destroy(self); 
+        self.allocator.destroy(self);
     }
 
     pub fn push(self: *Process, msg: Value) !void {
-        try self.mailbox.append(self.allocator,msg);
+        try self.mailbox.append(self.allocator, msg);
     }
 
     pub fn pop(self: *Process) ?Value {
-        if(self.mailbox.items.len == 0) {
+        if (self.mailbox.items.len == 0) {
             return null;
         }
         return self.mailbox.orderedRemove(0);
