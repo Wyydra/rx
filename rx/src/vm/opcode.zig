@@ -6,8 +6,8 @@ pub const Opcode = enum(u8) {
     // LOADNIL,    // R(A) = nil
     // LOADBOOL,   // R(A) = bool(B)
 
-    SEND,
-    RECV,
+    SEND, // SEND R(A) MSG: R(B)
+    RECV, // R(A) = RECV()
 
     ADD, // R(A) = R(B) + R(C)
     SUB, // R(A) = R(B) - R(C)
@@ -15,12 +15,12 @@ pub const Opcode = enum(u8) {
     LT, // R(A) = R(B) < R(C)
     GT, // R(A) = R(B) > R(C)
 
-    JF, // JUMP if R(A) is false
+    JF, // IF NOT R(A) JMP += Bx
 
     CALL, // CALL R(A) B
     RET, // RETURN R(A)
 
-    PRINT, // PRINT R(1)
+    PRINT, // PRINT R(A)
 };
 
 pub const Instruction = packed struct {
@@ -65,12 +65,21 @@ pub const Instruction = packed struct {
             .LOADK => {
                 try writer.print("R\x1b[32m{d}\x1b[0m K\x1b[33m{d}\x1b[0m", .{ self.A, self.getBx() });
             },
-            .RET, .SEND, .RECV => {
+            .RET, .RECV, .PRINT => {
                 try writer.print("R\x1b[32m{d}\x1b[0m", .{self.A});
             },
-            .MOVE => {
+            .SEND => {
                 try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{ self.A, self.B });
             },
+            .JF => {
+                try writer.print("R\x1b[32m{d}\x1b[0m +{d}", .{ self.A, self.getBx() });
+            },
+            .CALL => {
+                try writer.print("R\x1b[32m{d}\x1b[0m {d}", .{ self.A, self.B });
+            },
+            // .MOVE => {
+            //     try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{ self.A, self.B });
+            // },
             else => {
                 // ABC format
                 try writer.print("R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m", .{ self.A, self.B, self.C });

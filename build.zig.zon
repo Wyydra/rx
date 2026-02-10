@@ -1,13 +1,19 @@
 .{
-    .name = .rx,
+    .name = .rx_workspace,
     .version = "0.0.0",
-    .fingerprint = 0x20ef0853b9de109, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.15.2",
-    .dependencies = .{
-    },
+    .fingerprint = 0xd4c7a3c08e0bc54f,
     .paths = .{
         "build.zig",
         "build.zig.zon",
-        "src",
+        "rx",
+        "rxt",
+    },
+    .dependencies = .{
+        .rx = .{
+            .path = "rx",
+        },
+        .rxt = .{
+            .path = "rxt",
+        },
     },
 }

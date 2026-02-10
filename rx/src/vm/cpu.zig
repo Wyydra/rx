@@ -120,13 +120,29 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
     var base = frame.base;
 
     while (budget > 0) {
-        if (ip + 4 >= code.len) {
+        if (ip + 4 > code.len) {
             return ExecutionResult.terminated(0);
         }
 
         const raw_instr = std.mem.readInt(u32, code[ip..][0..4], .little); // TODO: ugly
         const instr = Instruction.decode(raw_instr);
         ip += 4;
+
+        // std.debug.print("Frame: ", .{});
+        // // Print up to 8 registers of the current frame
+        // const limit_reg = @min(stack.len, base + 8);
+        // for (stack[base..limit_reg], 0..) |v, i| {
+        //     if (v.isNil()) {
+        //         std.debug.print("R{d}=_, ", .{i});
+        //     } else {
+        //         std.debug.print("R{d}={f}, ", .{ i, v });
+        //     }
+        // }
+        // if (limit_reg < stack.len) {
+        //     std.debug.print("...", .{});
+        // }
+        // std.debug.print("\n{f} ", .{instr});
+        // std.debug.print("\n ", .{});
 
         switch (instr.getOpcode()) {
             .PRINT => {
@@ -207,7 +223,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 // RETURN A
                 const result = stack[base + instr.A];
 
-                _ = proc.frames.pop();
+                const popped_frame = proc.frames.pop() orelse return ExecutionResult.err(.stack_underflow);
 
                 if (proc.frames.items.len == 0) {
                     return ExecutionResult.terminated(0);
@@ -224,7 +240,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 stack[base - 1] = result;
 
                 base = caller_base;
-                ip = frame.return_ip;
+                ip = popped_frame.return_ip;
 
                 closure = frame.closure;
                 function = Closure.getFunction(closure);
@@ -268,6 +284,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
     }
     frame.return_ip = ip;
 
-    const val: u8 = @intCast(limit - budget);
+    const used = limit - budget;
+    const val: u8 = @intCast(@min(used, 255));
     return ExecutionResult.normal(val);
 }

@@ -1,6 +1,7 @@
 const std = @import("std");
 const Value = @import("../memory/value.zig").Value;
 const Opcode = @import("opcode.zig").Opcode;
+const Instruction = @import("opcode.zig").Instruction;
 const Heap = @import("../memory/heap.zig").Heap;
 const HeapObject = @import("../memory/value.zig").HeapObject;
 const Function = @import("../memory/function.zig");
@@ -62,15 +63,38 @@ pub const Assembler = struct {
         try self.emit(.RET, reg, 0, 0);
     }
 
+    pub fn print(self: *Assembler, reg: u8) !void {
+        try self.emit(.PRINT, reg, 0, 0);
+    }
+
     pub fn add(self: *Assembler, dest: u8, lhs: u8, rhs: u8) !void {
         try self.emit(.ADD, dest, lhs, rhs);
     }
 
-    pub fn compileToClosure(self: *Assembler, heap: *Heap) !*HeapObject {
-        const func_obj = try Function.alloc(heap, 0, // Arity (params) - Default 0
+    pub fn call(self: *Assembler, closure_reg: u8, count_reg: u8) !void {
+        try self.emit(.CALL, closure_reg, count_reg, 0);
+    }
+
+    pub fn dump(self: *Assembler, writer: *std.Io.Writer) !void {
+        try writer.print("== Code Dump ==\n", .{});
+
+        var i: usize = 0;
+        while (i < self.code.items.len) : (i += 4) {
+            const raw = std.mem.readInt(u32, self.code.items[i..][0..4], .little);
+            const inst = Instruction.decode(raw);
+
+            try writer.print("{x:0>4} ", .{i});
+            try inst.format(writer);
+            try writer.print("\n", .{});
+            try writer.flush();
+        }
+    }
+
+    pub fn compileToClosure(self: *Assembler) !*HeapObject {
+        const func_obj = try Function.alloc(self.heap, 0, // Arity (params) - Default 0
             0, // Upvalues - Default 0
             self.code.items, self.constants.items);
 
-        return try Closure.alloc(heap, func_obj, 0);
+        return try Closure.alloc(self.heap, func_obj, 0);
     }
 };

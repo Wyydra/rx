@@ -1,5 +1,7 @@
 const std = @import("std");
 const String = @import("string.zig");
+const Closure = @import("closure.zig");
+const Function = @import("function.zig");
 
 pub const HeapObject = struct {
     pub const Kind = enum(u8) {
@@ -172,13 +174,22 @@ pub const Value = packed struct {
             },
             .pointer => {
                 const obj = self.asPointer() catch unreachable;
-                if (obj.kind == .string) {
-                    const s = self.asString() catch unreachable;
-                    try writer.print("\"{s}\"", .{s});
-                } else {
-                    try writer.print("{s}<{*}>", .{ @tagName(obj.kind), obj });
+                switch (obj.kind) {
+                    .string => {
+                        const s = self.asString() catch unreachable;
+                        try writer.print("\"{s}\"", .{s});
+                    },
+                    .closure => {
+                        const count = Closure.getEnvCount(obj);
+                        const func = Closure.getFunction(obj);
+                        try writer.print("<Closure env_count={d} func=0x{x}>", .{ count, @intFromPtr(func) });
+                    },
+                    .function => {
+                        const meta = Function.getMeta(obj);
+                        try writer.print("<Function arity={d}>", .{meta.arity});
+                    },
                 }
-                // TODO pretty-print contents based on heap object type
+
             },
         }
     }

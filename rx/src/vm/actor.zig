@@ -49,11 +49,11 @@ pub const Actor = union(enum) {
     pub fn send(self: Actor, msg: Value, sched: *Scheduler) void {
         switch (self) {
             .process => |proc| {
-                // Software: Queue it for later execution
+                // queue it
                 proc.pushMessage(msg) catch {};
             },
             .port => |p| {
-                // Hardware: Execute immediately (System Driver)
+                // execute immediately
                 (p.handler)(p.context, msg, sched);
             },
         }

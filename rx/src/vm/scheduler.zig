@@ -117,7 +117,7 @@ pub const Scheduler = struct {
 
                 .error_state => {
                     // Crash
-                    std.log.err("Process {f} Crashed! Error Code: {d}", .{ process.pid, result.payload });
+                    std.log.err("Process {f} Crashed! Error Code: {any}", .{ process.pid, result.getErrorCode() });
                     process.deinit();
                 },
             }

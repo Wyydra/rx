@@ -45,7 +45,7 @@ pub const Process = struct {
         self.allocator = allocator;
 
         try self.stack.append(allocator, Value.pointer(main_closure));
-        try self.stack.appendNTimes(allocator, Value.nil(), 20);
+        try self.stack.appendNTimes(allocator, Value.nil(), 256);
 
         try self.frames.append(allocator, .{
             .base = 1,
