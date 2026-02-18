@@ -1,5 +1,6 @@
 const std = @import("std");
 const String = @import("string.zig");
+const Heap = @import("heap.zig").Heap;
 const Closure = @import("closure.zig");
 const Function = @import("function.zig");
 
@@ -80,6 +81,11 @@ pub const Value = packed struct {
         const addr = @intFromPtr(obj);
         std.debug.assert(addr & TAG_MASK == 0);
         return .{ .bits = addr };
+    }
+
+    pub fn string(heap: *Heap, s: []const u8) !Value {
+        const obj = try String.alloc(heap, s);
+        return Value.pointer(obj);
     }
 
     pub inline fn getTag(self: Value) Tag {

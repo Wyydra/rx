@@ -21,7 +21,7 @@ pub fn main() !void {
     var scheduler = rx.vm.Scheduler.init(allocator, 0, &system);
     defer scheduler.deinit();
 
-    var asm_callee = rx.vm.Assembler.init(allocator, &heap);
+    var asm_callee = rx.bytecode.Assembler.init(allocator, &heap);
     defer asm_callee.deinit();
 
     try asm_callee.print(0);
@@ -31,7 +31,7 @@ pub fn main() !void {
 
     const closure_callee = try asm_callee.compileToClosure();
 
-    var asm_caller = rx.vm.Assembler.init(allocator, &heap);
+    var asm_caller = rx.bytecode.Assembler.init(allocator, &heap);
     defer asm_caller.deinit();
 
     try asm_caller.loadConstant(0, rx.memory.Value.pointer(closure_callee));

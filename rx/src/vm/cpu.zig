@@ -2,7 +2,7 @@ const std = @import("std");
 const Process = @import("process.zig").Process;
 const Closure = @import("../memory/closure.zig");
 const Function = @import("../memory/function.zig");
-const Instruction = @import("opcode.zig").Instruction;
+const Instruction = @import("../bytecode/opcode.zig").Instruction;
 const Value = @import("../memory/value.zig").Value;
 const ActorId = @import("actor.zig").ActorId;
 
