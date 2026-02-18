@@ -1,1 +1,5 @@
-(print "Hello World")
+(module
+ (func $_start
+  (print "hello world!")
+
+  (return)))

@@ -1,6 +1,8 @@
 const std = @import("std");
 const rx = @import("rx");
 const Lexer = @import("lexer.zig").Lexer;
+const ast = @import("ast.zig");
+const compiler = @import("compiler.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -25,17 +27,31 @@ pub fn main() !void {
     const fileStat = try file.stat();
     const fileSize = fileStat.size;
 
-    const content: []u8 = try allocator.alloc(u8, fileSize + 1);
+    const content: []u8 = try allocator.alloc(u8, @as(usize, @intCast(fileSize)) + 1);
     defer allocator.free(content);
-    content[fileSize] = 0;
+    content[@as(usize, @intCast(fileSize))] = 0;
     _ = try file.readAll(content);
 
-    const source = content[0..fileSize :0];
+    const source = content[0..@as(usize, @intCast(fileSize)) :0];
 
-    var lexer = Lexer.init(source);
+    const module = try ast.parse(allocator, source);
+    for (module.functions) |func| {
+        allocator.free(func.body);
+    }
+    defer allocator.free(module.functions);
 
-    const token = lexer.next();
+    try writer.print("{f}", .{module});
 
-    try writer.print("{any}", .{token});
-    try writer.flush();
+    var heap = try rx.memory.Heap.init(allocator, 1024 * 1024);
+    defer heap.deinit();
+
+    const closure = try compiler.compile(allocator, &heap, &module);
+
+    var system = rx.vm.System.init(allocator);
+    var scheduler = rx.vm.Scheduler.init(allocator, 0, &system);
+    defer scheduler.deinit();
+
+    _ = try scheduler.spawn(closure);
+
+    try scheduler.execute();
 }

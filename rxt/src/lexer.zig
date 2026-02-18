@@ -10,7 +10,11 @@ pub const Token = struct {
     };
 
     const keywords = std.StaticStringMap(Tag).initComptime(.{
-        //.{ "print", .keyword_print },
+        .{ "print", .keyword_print },
+        .{ "module", .keyword_module },
+        .{ "func", .keyword_func },
+        .{ "param", .keyword_param },
+        .{ "return", .keyword_return },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -19,13 +23,19 @@ pub const Token = struct {
 
     pub const Tag = enum {
         number_literal,
-        int,
+        string_literal,
         r_paren,
         l_paren,
         identifier,
         comment,
         invalid,
         eof,
+
+        keyword_print,
+        keyword_module,
+        keyword_func,
+        keyword_param,
+        keyword_return,
     };
 };
 
@@ -47,8 +57,10 @@ pub const Lexer = struct {
     const State = enum {
         start,
         invalid,
-        int,
+        number_literal,
+        string_literal,
         identifier,
+        keyword,
     };
 
     pub fn next(self: *Lexer) Token {
@@ -83,16 +95,19 @@ pub const Lexer = struct {
                             self.currentLineOffset = 0;
                         }
                     },
-                    ';' => {
-                        while (self.buffer[self.index + 1] != 0 and self.buffer[self.index + 1] != '\n') : (self.index += 1) {}
-                        continue;
+                    '"' => {
+                        state = .string_literal;
+                        result.tag = .string_literal;
                     },
-                    'a'...'z', 'A'...'Z', '_' => {
+                    '$' => {
                         state = .identifier;
                         result.tag = .identifier;
                     },
+                    'a'...'z', 'A'...'Z', '_' => {
+                        state = .keyword;
+                    },
                     '0'...'9' => {
-                        state = .int;
+                        state = .number_literal;
                         result.tag = .number_literal;
                     },
                     '(' => {
@@ -112,15 +127,37 @@ pub const Lexer = struct {
                         return result;
                     },
                 },
-                .int => switch (c) {
+                .number_literal => switch (c) {
                     '_', '0'...'9' => {},
                     else => break,
+                },
+                .string_literal => switch (c) {
+                    '"' => {
+                        self.index += 1;
+                        break;
+                    },
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
+                    else => {}
                 },
                 .identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
                         if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
                             result.tag = tag;
+                        }
+                        break;
+                    },
+                },
+                .keyword => switch (c) {
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
+                    else => {
+                        if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
+                            result.tag = tag;
+                        } else {
+                            result.tag = .identifier;
                         }
                         break;
                     },
@@ -142,6 +179,10 @@ pub const Lexer = struct {
         }
         result.loc.end = self.index;
         return result;
+    }
+
+    pub fn getTokenStr(self: *Lexer, token: Token) []const u8 {
+        return self.buffer[token.loc.start..token.loc.end];
     }
 };
 
