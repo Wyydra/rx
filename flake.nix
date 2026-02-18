@@ -18,7 +18,7 @@
       in
       {
         devShells.default = pkgs.mkShell { 
-            packages = with pkgs; [ zig zls ]; 
+            packages = with pkgs; [ zig zls wasmtime python3 just ]; 
             shellHook = ''
               export ZIG_GLOBAL_CACHE_DIR=.zig-cache
               echo $ZIG_GLOBAL_CACHE_DIR

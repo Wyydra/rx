@@ -59,30 +59,30 @@ pub const Instruction = packed struct {
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
         const op = self.getOpcode();
-        try writer.print("\x1b[36m{s}\x1b[0m ", .{@tagName(op)});
+        try writer.print("{s} ", .{@tagName(op)});
 
         switch (op) {
             .LOADK => {
-                try writer.print("R\x1b[32m{d}\x1b[0m K\x1b[33m{d}\x1b[0m", .{ self.A, self.getBx() });
+                try writer.print("R{d} K{d}", .{ self.A, self.getBx() });
             },
             .RET, .RECV, .PRINT => {
-                try writer.print("R\x1b[32m{d}\x1b[0m", .{self.A});
+                try writer.print("R{d}", .{self.A});
             },
             .SEND => {
-                try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{ self.A, self.B });
+                try writer.print("R{d} R{d}", .{ self.A, self.B });
             },
             .JF => {
-                try writer.print("R\x1b[32m{d}\x1b[0m +{d}", .{ self.A, self.getBx() });
+                try writer.print("R{d} +{d}", .{ self.A, self.getBx() });
             },
             .CALL => {
-                try writer.print("R\x1b[32m{d}\x1b[0m {d}", .{ self.A, self.B });
+                try writer.print("R{d} {d}", .{ self.A, self.B });
             },
             // .MOVE => {
             //     try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{ self.A, self.B });
             // },
             else => {
                 // ABC format
-                try writer.print("R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m  R\x1b[32m{d}\x1b[0m", .{ self.A, self.B, self.C });
+                try writer.print("R{d}  R{d}  R{d}", .{ self.A, self.B, self.C });
             },
         }
     }

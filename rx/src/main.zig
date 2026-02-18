@@ -1,9 +1,13 @@
 const std = @import("std");
 const rx = @import("rx");
+const log = std.log.scoped(.top);
+
+pub const std_options = std.Options{
+    .log_level = .debug,
+};
 
 pub fn main() !void {
     var stdout = std.fs.File.stdout().writer(&.{}).interface;
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();

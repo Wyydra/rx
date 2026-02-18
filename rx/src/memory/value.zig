@@ -126,7 +126,7 @@ pub const Value = packed struct {
     pub fn asPointer(self: Value) !*HeapObject {
         if (self.getTag() != .pointer) return error.TypeError;
         const addr = self.bits & PAYLOAD_MASK;
-        const ptr: *HeapObject = @ptrFromInt(addr);
+        const ptr: *HeapObject = @ptrFromInt(@as(usize, @intCast(addr)));
         std.debug.assert(@intFromPtr(ptr) % 8 == 0);
         return ptr;
     }

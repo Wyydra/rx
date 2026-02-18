@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>RxVM - WASI Benchmark</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #0f0;
+            padding: 20px;
+        }
+
+        #console {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .status {
+            color: #ff0;
+            font-weight: bold;
+        }
+
+        .success {
+            color: #0f0;
+        }
+
+        .error {
+            color: #f00;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>RxVM Status: <span id="status" class="status">Initializing...</span></h2>
+    <div id="console"></div>
+
+    <script>
+        // 1. GLOBALS
+        const output = document.getElementById('console');
+        const status = document.getElementById('status');
+
+        // CRITICAL: This variable holds the link to WASM memory.
+        // It must be declared here so the 'wasi' object can see it.
+        let memory;
+
+        // 2. HELPER: Read String from WASM
+        function readStr(ptr, len) {
+            const bytes = new Uint8Array(memory.buffer, ptr, len);
+            return new TextDecoder().decode(bytes);
+        }
+
+        // 3. THE COMPLETE WASI SHIM
+        const wasi = {
+            // --- OUTPUT (fd_write) ---
+            fd_write: (fd, iovs_ptr, iovs_len, nwritten_ptr) => {
+                const view = new DataView(memory.buffer);
+                let totalWritten = 0;
+                for (let i = 0; i < iovs_len; i++) {
+                    const ptr = view.getUint32(iovs_ptr + (i * 8), true);
+                    const len = view.getUint32(iovs_ptr + (i * 8) + 4, true);
+                    const string = readStr(ptr, len);
+
+                    output.innerText += string;
+                    totalWritten += len;
+                }
+                view.setUint32(nwritten_ptr, totalWritten, true);
+                return 0;
+            },
+
+            // --- INPUT (fd_read) ---
+            // Fixes "fd_read is not a Function"
+            fd_read: (fd, iovs_ptr, iovs_len, nread_ptr) => {
+                const view = new DataView(memory.buffer);
+                view.setUint32(nread_ptr, 0, true); // Write 0 bytes read (EOF)
+                return 0;
+            },
+
+            // --- POSITIONAL WRITE (fd_pwrite) ---
+            // Fixes "fd_pwrite is not a Function"
+            fd_pwrite: (fd, iovs_ptr, iovs_len, offset, nwritten_ptr) => {
+                return wasi.fd_write(fd, iovs_ptr, iovs_len, nwritten_ptr);
+            },
+
+            // --- TIME (clock_time_get) ---
+            clock_time_get: (id, precision, time_ptr) => {
+                const now = window.performance.now();
+                const nsec = BigInt(Math.floor(now * 1_000_000));
+                const view = new DataView(memory.buffer);
+                view.setBigUint64(time_ptr, nsec, true);
+                return 0;
+            },
+
+            // --- FILESYSTEM CHECKS (fd_fdstat_get) ---
+            // Fixes "fd_fdstat_get" errors
+            fd_fdstat_get: (fd, stat_ptr) => {
+                const view = new DataView(memory.buffer);
+                view.setUint8(stat_ptr, 2); // character_device
+                view.setUint16(stat_ptr + 2, 0);
+                view.setBigUint64(stat_ptr + 8, BigInt(0), true);
+                view.setBigUint64(stat_ptr + 16, BigInt(0), true);
+                return 0;
+            },
+            fd_filestat_get: (fd, buf_ptr) => 0,
+            fd_prestat_get: (fd, buf_ptr) => 8, // EBADF
+            fd_prestat_dir_name: (fd, path_ptr, path_len) => 8, // EBADF
+
+            // --- ARGS & ENV ---
+            // Fixes "args_sizes_get" errors
+            args_sizes_get: (argc_ptr, argv_buf_size_ptr) => {
+                const view = new DataView(memory.buffer);
+                view.setUint32(argc_ptr, 0, true);
+                view.setUint32(argv_buf_size_ptr, 0, true);
+                return 0;
+            },
+            args_get: (argv_ptr, argv_buf_ptr) => 0,
+            environ_sizes_get: (envc_ptr, env_buf_size_ptr) => {
+                const view = new DataView(memory.buffer);
+                view.setUint32(envc_ptr, 0, true);
+                view.setUint32(env_buf_size_ptr, 0, true);
+                return 0;
+            },
+            environ_get: (environ_ptr, environ_buf_ptr) => 0,
+
+            // --- STUBS ---
+            fd_close: (fd) => 0,
+            fd_seek: (fd, offset, whence, new_offset_ptr) => 0,
+            fd_sync: (fd) => 0,
+            sched_yield: () => 0,
+
+            // --- EXIT ---
+            proc_exit: (code) => {
+                status.innerText = "Exited with code " + code;
+                status.className = (code === 0) ? "success" : "error";
+                throw "WASM_EXIT";
+            }
+        };
+
+        // 4. LOAD & RUN
+        const imports = {
+            "wasi_snapshot_preview1": wasi
+        };
+
+        WebAssembly.instantiateStreaming(fetch("rx.wasm"), imports)
+            .then(obj => {
+                // 5. ASSIGN MEMORY BEFORE RUNNING
+                memory = obj.instance.exports.memory;
+
+                status.innerText = "Running...";
+                status.className = "success";
+
+                if (obj.instance.exports._start) {
+                    obj.instance.exports._start();
+                }
+            })
+            .catch(err => {
+                if (err !== "WASM_EXIT") {
+                    status.innerText = "Runtime Error";
+                    status.className = "error";
+                    output.innerText += "\n[JS Error] " + err;
+                    console.error(err);
+                }
+            });
+    </script>
+</body>
+
+</html>
