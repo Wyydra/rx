@@ -11,6 +11,7 @@ pub const Register = u8;
 pub const Literal = union(enum) {
     integer: i64,
     string: []const u8,
+    void: void,
 };
 
 // locations in memory
@@ -71,6 +72,13 @@ pub const Module = struct {
             try writer.print("{f}\n", .{func});
         }
         try writer.print("]\n", .{});
+    }
+
+    pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
+        for (self.functions) |func| {
+            allocator.free(func.body);
+        }
+        defer allocator.free(self.functions);
     }
 };
 

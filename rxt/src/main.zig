@@ -34,11 +34,8 @@ pub fn main() !void {
 
     const source = content[0..@as(usize, @intCast(fileSize)) :0];
 
-    const module = try ast.parse(allocator, source);
-    for (module.functions) |func| {
-        allocator.free(func.body);
-    }
-    defer allocator.free(module.functions);
+    var module = try ast.parse(allocator, source);
+    defer module.deinit(allocator);
 
     try writer.print("{f}", .{module});
 

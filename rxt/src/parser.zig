@@ -72,7 +72,7 @@ pub const Parser = struct {
                 .print = try self.parseRValue(),
             },
             .keyword_return => .{
-                .ret = self.parseRValue() catch undefined,
+                .ret = self.parseRValue() catch ast.RValue{ .Val = .void },
             },
             else => {
                 log.err("Unknown instruction '{any}'", .{tag});
