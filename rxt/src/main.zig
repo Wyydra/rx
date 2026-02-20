@@ -47,13 +47,13 @@ pub fn main() !void {
     const closure = try compiler.compile(arena_alloc, &heap, &module);
     // ── End of compilation phase ────────────────────────────────────────────
 
-    var writer = std.fs.File.stdout().writer(&.{}).interface;
+    // var writer = std.fs.File.stdout().writer(&.{}).interface;
 
-    try rx.memory.Closure.dump(closure, &writer);
-    const func = rx.memory.Closure.getFunction(closure);
-    const fib_val = rx.memory.Function.getConstants(func)[0];
-    const fib = try fib_val.asClosure();
-    try rx.memory.Closure.dump(fib, &writer);
+    // try rx.memory.Closure.dump(closure, &writer);
+    // const func = rx.memory.Closure.getFunction(closure);
+    // const fib_val = rx.memory.Function.getConstants(func)[0];
+    // const fib = try fib_val.asClosure();
+    // try rx.memory.Closure.dump(fib, &writer);
 
     var system = rx.vm.System.init(gpa_alloc);
     var scheduler = rx.vm.Scheduler.init(gpa_alloc, 0, &system);

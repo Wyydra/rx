@@ -7,7 +7,7 @@ const ActorId = @import("actor.zig").ActorId;
 
 pub const CallFrame = struct {
     base: usize,
-    return_ip: usize,
+    caller_ip: usize,
     closure: *HeapObject,
 };
 pub const Process = struct {
@@ -57,7 +57,7 @@ pub const Process = struct {
 
         self.frames.appendAssumeCapacity(.{
             .base = 1,
-            .caller_ip = 0, // initial frame — caller_ip unused (RET terminates)
+            .caller_ip = 0,
             .closure = main_closure,
         });
 

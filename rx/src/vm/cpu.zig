@@ -116,7 +116,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
     var code = Function.getCode(function);
     var constants = Function.getConstants(function);
 
-    var ip = frame.return_ip; // For the top frame, return_ip IS the current ip
+    var ip = proc.saved_ip; // resume point — set by preemption or 0 for a fresh start
     var base = frame.base;
 
     while (budget > 0) {
@@ -174,7 +174,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 } else {
                     // rewind //TODO: rm magic number
                     ip -= 4;
-                    proc.frames.items[proc.frames.items.len - 1].return_ip = ip;
+                    proc.saved_ip = ip;
                     return ExecutionResult.waiting(.message, 0);
                 }
             },
@@ -219,8 +219,12 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 // JUMP if R(A) is false
                 const a = stack[base + instr.A];
 
-                if (!(a.asBoolean() catch return ExecutionResult.err(.invalid_instruction))) {
-                    ip += instr.getBx();
+                if (a.asBoolean()) |cond| {
+                    if (!cond) ip += instr.getBx();
+                } else |_| {
+                    std.debug.print("[DBG] JF crash: base={d} R({d})={any} ip={d}\n",
+                        .{ base, instr.A, a, ip - 4 });
+                    return ExecutionResult.err(.invalid_instruction);
                 }
             },
             .RET => {
@@ -244,7 +248,8 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 stack[base - 1] = result;
 
                 base = caller_base;
-                ip = popped_frame.return_ip;
+                ip = popped_frame.caller_ip; // restore to CALLER's original continuation
+                proc.saved_ip = ip;          // keep proc.saved_ip in sync for preemption
 
                 closure = frame.closure;
                 function = Closure.getFunction(closure);
@@ -279,7 +284,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
 
                 proc.frames.append(proc.allocator, .{
                     .base = new_base,
-                    .return_ip = ip,
+                    .caller_ip = ip, // caller's continuation (ip already past CALL)
                     .closure = closure_obj,
                 }) catch return ExecutionResult.err(.out_of_memory);
 
@@ -295,12 +300,13 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 code = Function.getCode(function);
                 constants = Function.getConstants(function);
                 ip = 0;
+                proc.saved_ip = 0; // callee starts fresh at ip=0
             },
         }
 
-        budget -= 1; // TODO: reduction depends on the instruction type
+        budget -= 1;
     }
-    frame.return_ip = ip;
+    proc.saved_ip = ip; // save resume point — never touch caller_ip in frames
 
     const used = limit - budget;
     const val: u8 = @intCast(@min(used, 255));
