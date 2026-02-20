@@ -30,8 +30,12 @@ pub const Process = struct {
 
     allocator: std.mem.Allocator,
 
+    /// Initial register-window capacity. 16 should be enough for shallow programs;
+    /// ArrayList will grow automatically if deeper frames need more.
+    const INITIAL_STACK_SIZE: usize = 16;
+    const INITIAL_FRAME_CAPACITY: usize = 8;
+
     pub fn init(allocator: std.mem.Allocator, pid: ActorId, main_closure: *HeapObject) !*Process {
-        // TODO: same allocator as vm heap ??
         const self = try allocator.create(Process);
 
         self.node = .{ .prev = null, .next = null };
@@ -44,12 +48,16 @@ pub const Process = struct {
 
         self.allocator = allocator;
 
-        try self.stack.append(allocator, Value.pointer(main_closure));
-        try self.stack.appendNTimes(allocator, Value.nil(), 256);
+        // Pre-allocate to avoid reallocs during the hot dispatch loop.
+        try self.stack.ensureTotalCapacity(allocator, 1 + INITIAL_STACK_SIZE);
+        try self.frames.ensureTotalCapacity(allocator, INITIAL_FRAME_CAPACITY);
 
-        try self.frames.append(allocator, .{
+        self.stack.appendAssumeCapacity(Value.pointer(main_closure));
+        for (0..INITIAL_STACK_SIZE) |_| self.stack.appendAssumeCapacity(Value.nil());
+
+        self.frames.appendAssumeCapacity(.{
             .base = 1,
-            .return_ip = 0,
+            .caller_ip = 0, // initial frame — caller_ip unused (RET terminates)
             .closure = main_closure,
         });
 

@@ -3,6 +3,8 @@ const Heap = @import("heap.zig").Heap;
 const HeapError = @import("heap.zig").HeapError;
 const HeapObject = @import("value.zig").HeapObject;
 const Value = @import("value.zig").Value;
+const Function = @import("function.zig");
+const Instruction = @import("../bytecode/opcode.zig").Instruction;
 
 // Layout:
 // 1. [HeapObject Header] (8 bytes)
@@ -43,6 +45,17 @@ pub fn getFunction(obj: *const HeapObject) *HeapObject {
     return func_slot.*;
 }
 
+/// Redirect a closure's function pointer to a newly compiled function
+/// Used to patch a pre-registered placeholder after its body has been compiled
+pub fn setFunction(obj: *HeapObject, function: *HeapObject) void {
+    std.debug.assert(obj.kind == .closure);
+    std.debug.assert(function.kind == .function);
+
+    const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
+    const func_slot = @as(**HeapObject, @ptrCast(@alignCast(payload_ptr)));
+    func_slot.* = function;
+}
+
 pub fn getEnv(obj: *HeapObject) []Value {
     std.debug.assert(obj.kind == .closure);
     if (obj.size == 0) {
@@ -68,5 +81,18 @@ pub fn setEnvValue(obj: *HeapObject, index: u32, value: Value) void {
 
 pub fn getEnvCount(obj: *const HeapObject) u32 {
     std.debug.assert(obj.kind == .closure);
-    return @intCast(obj.size);
+    const func_ptr_size = @sizeOf(*HeapObject);
+    if (obj.size <= func_ptr_size) return 0;
+    return @intCast((obj.size - func_ptr_size) / @sizeOf(Value));
+}
+
+pub fn dump(obj: *const HeapObject, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    std.debug.assert(obj.kind == .closure);
+
+    const func = getFunction(obj);
+
+    try writer.print("=== closure dump ===\n", .{});
+    try writer.print("env_count:     {d}\n", .{getEnvCount(obj)});
+    try Function.dump(func, writer);
+    try writer.print("====================\n", .{});
 }

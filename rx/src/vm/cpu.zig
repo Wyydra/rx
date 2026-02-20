@@ -145,6 +145,10 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
         // std.debug.print("\n ", .{});
 
         switch (instr.getOpcode()) {
+            .MOVE => {
+                const src_val = stack[base + instr.A];
+                stack[base + instr.B] = src_val;
+            },
             .PRINT => {
                 const val = stack[base + instr.A];
                 std.debug.print("> {f}\n", .{val});
@@ -168,7 +172,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 if (proc.pop()) |msg| {
                     stack[base + instr.A] = msg;
                 } else {
-                    // rewind
+                    // rewind //TODO: rm magic number
                     ip -= 4;
                     proc.frames.items[proc.frames.items.len - 1].return_ip = ip;
                     return ExecutionResult.waiting(.message, 0);
@@ -258,6 +262,20 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const closure_obj = closure_val.asClosure() catch unreachable;
 
                 const new_base = closure_idx + 1;
+
+                // Ensure the stack has enough room for the new frame's register window.
+                // max_regs is the exact peak register count stored in the function at
+                // compile time — no guessing, no magic constants.
+                const callee_func = Closure.getFunction(closure_obj);
+                const min_stack_len = new_base + Function.getMaxRegs(callee_func);
+                if (proc.stack.items.len < min_stack_len) {
+                    const old_len = proc.stack.items.len;
+                    proc.stack.resize(proc.allocator, min_stack_len) catch
+                        return ExecutionResult.err(.out_of_memory);
+                    for (proc.stack.items[old_len..]) |*slot| slot.* = Value.nil();
+                }
+                // Re-sync after the potential reallocation.
+                stack = proc.stack.items;
 
                 proc.frames.append(proc.allocator, .{
                     .base = new_base,

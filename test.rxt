@@ -1,5 +1,7 @@
 (module
  (func $_start
-  (print "hello world!")
-
-  (return)))
+  (let $n 1)
+  (if (lt 2 $n)
+   (print "lt"))
+  (return))
+ ))

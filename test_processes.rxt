@@ -1,0 +1,37 @@
+(module 
+  (func $receiver (params 0) (stack 4)
+    (alias $msg @0)
+    (alias $console $1)
+
+    (recv $msg)
+
+    (resolve $console $msg)
+
+    (send $console $msg)
+
+    (ret $msg)
+  )
+  (func $sender (params 0) (stack 4)
+    (alias $target $0)
+    (alias $payload $1)
+
+    ;; Let's assume we somehow know the PID is 2 for this example
+    (set $target 2) 
+
+    (set $payload 99)
+
+    (send $target $payload)
+
+    (ret)
+  )
+  (func $_start (params 0) (stack 4)
+    (alias $pid_recv $0)
+    (alias $pid_send $1)
+
+    (spawn $pid_recv $receiver)
+
+    (spawn $pid_send $sender)
+
+    (exit)
+  )
+)

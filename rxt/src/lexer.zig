@@ -15,6 +15,12 @@ pub const Token = struct {
         .{ "func", .keyword_func },
         .{ "param", .keyword_param },
         .{ "return", .keyword_return },
+        .{ "call", .keyword_call },
+        .{ "let", .keyword_let },
+        .{ "if", .keyword_if },
+        .{ "lt", .keyword_lt },
+        .{ "sub", .keyword_sub },
+        .{ "add", .keyword_add },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -36,6 +42,12 @@ pub const Token = struct {
         keyword_func,
         keyword_param,
         keyword_return,
+        keyword_call,
+        keyword_let,
+        keyword_if,
+        keyword_lt,
+        keyword_sub,
+        keyword_add,
     };
 };
 

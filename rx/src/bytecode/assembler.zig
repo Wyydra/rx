@@ -9,11 +9,10 @@ const Closure = @import("../memory/closure.zig");
 
 pub const Assembler = struct {
     allocator: std.mem.Allocator,
-
     code: std.ArrayList(u8),
-
     heap: *Heap,
     constants: std.ArrayList(Value),
+    max_reg: u8 = 0,
 
     pub fn init(allocator: std.mem.Allocator, heap: *Heap) Assembler {
         return .{
@@ -30,6 +29,9 @@ pub const Assembler = struct {
     }
 
     pub fn emit(self: *Assembler, op: Opcode, a: u8, b: u8, c: u8) !void {
+        // Track the highest register index seen — used by compileToClosure for max_regs.
+        const top = @max(a, @max(b, c)) + 1;
+        if (top > self.max_reg) self.max_reg = top;
         try self.code.append(self.allocator, @intFromEnum(op));
         try self.code.append(self.allocator, a);
         try self.code.append(self.allocator, b);
@@ -63,6 +65,10 @@ pub const Assembler = struct {
         try self.emit(.RET, reg, 0, 0);
     }
 
+    pub fn move(self: *Assembler, src: u8, dest: u8) !void {
+        try self.emit(.MOVE, src, dest, 0);
+    }
+
     pub fn print(self: *Assembler, reg: u8) !void {
         try self.emit(.PRINT, reg, 0, 0);
     }
@@ -73,6 +79,26 @@ pub const Assembler = struct {
 
     pub fn call(self: *Assembler, closure_reg: u8, count_reg: u8) !void {
         try self.emit(.CALL, closure_reg, count_reg, 0);
+    }
+
+    pub fn patchJump(self: *Assembler, jump_instruction_index: usize) !void {
+        const next_inst_index = jump_instruction_index + 4;
+        const distance_bytes = self.code.items.len - next_inst_index;
+
+        if (distance_bytes > std.math.maxInt(u16)) {
+            return error.JumpTooFar;
+        }
+
+        const bx: u16 = @intCast(distance_bytes);
+
+        const raw = std.mem.readInt(u32, self.code.items[jump_instruction_index..][0..4], .little);
+
+        var inst = Instruction.decode(raw);
+
+        inst.B = @truncate(bx & 0xFF);
+        inst.C = @truncate(bx >> 8);
+
+        std.mem.writeInt(u32, self.code.items[jump_instruction_index..][0..4], inst.encode(), .little);
     }
 
     pub fn dump(self: *Assembler, writer: *std.Io.Writer) !void {
@@ -91,8 +117,10 @@ pub const Assembler = struct {
     }
 
     pub fn compileToClosure(self: *Assembler) !*HeapObject {
-        const func_obj = try Function.alloc(self.heap, 0, // Arity (params) - Default 0
-            0, // Upvalues - Default 0
+        const func_obj = try Function.alloc(self.heap,
+            0,              // arity
+            0,              // upvalues
+            self.max_reg,   // peak register count, tracked by emit()
             self.code.items, self.constants.items);
 
         return try Closure.alloc(self.heap, func_obj, 0);

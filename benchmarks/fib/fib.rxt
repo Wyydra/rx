@@ -1,0 +1,21 @@
+(module
+ (func $fib (param $n)
+  (if (lt $n 2)
+   (return $n))
+
+  (let $n1 (sub $n 1))
+  (let $res1 (call $fib $n1))
+
+  (let $n2 (sub $n 2))
+  (let $res2 (call $fib $n2))
+
+  (let $sum (add $res1 $res2))
+  (return $sum)
+ )
+ (func $_start
+  (let $result (call $fib 30))
+
+  (print $result)
+  (return 0)
+ )
+ )

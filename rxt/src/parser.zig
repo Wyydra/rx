@@ -12,7 +12,10 @@ pub const Parser = struct {
 
     pub fn parseModule(self: *Parser, allocator: std.mem.Allocator) !ast.Module {
         var functions: std.ArrayList(ast.FuncDecl) = .empty;
-        defer functions.deinit(allocator);
+        errdefer {
+            for (functions.items) |*func| func.deinit(allocator);
+            functions.deinit(allocator);
+        }
 
         try self.consume(.l_paren, "Expected '('");
         try self.consume(.keyword_module, "Expected 'module' keyword");
@@ -37,20 +40,27 @@ pub const Parser = struct {
     }
 
     fn parseFuncDecl(self: *Parser, allocator: std.mem.Allocator) !ast.FuncDecl {
-        const params: u8 = 0;
+        var params: std.ArrayList(ast.Identifier) = .empty;
         var nodes: std.ArrayList(ast.Node) = .empty;
-        defer nodes.deinit(allocator);
+        errdefer {
+            for (nodes.items) |*node| node.deinit(allocator);
+            nodes.deinit(allocator);
+            params.deinit(allocator);
+        }
 
         const name = try self.parseIdentifier();
+
+        log.debug("Compiling func {s}", .{name});
 
         while (!self.check(.r_paren) and !self.check(.eof)) {
             try self.consume(.l_paren, "Expected '(' to start instruction or metadata");
 
             if (self.match(.keyword_param)) {
-                return error.NotImplemented;
-                // try self.consume(.r_paren, "Closing param");
+                const param = try self.parseIdentifier();
+                try params.append(allocator, param);
+                try self.consume(.r_paren, "Expected ')' closing param");
             } else {
-                const node = try self.parseInstruction();
+                const node = try self.parseInstruction(allocator);
                 try nodes.append(allocator, node);
             }
         }
@@ -59,12 +69,12 @@ pub const Parser = struct {
 
         return ast.FuncDecl{
             .name = name,
-            .params = params,
+            .params = try params.toOwnedSlice(allocator),
             .body = try nodes.toOwnedSlice(allocator),
         };
     }
 
-    fn parseInstruction(self: *Parser) !ast.Node {
+    fn parseInstruction(self: *Parser, allocator: std.mem.Allocator) !ast.Node {
         const tag = self.curToken.tag;
         self.advance();
         const node: ast.Node = switch (tag) {
@@ -73,6 +83,64 @@ pub const Parser = struct {
             },
             .keyword_return => .{
                 .ret = self.parseRValue() catch ast.RValue{ .Val = .void },
+            },
+            .keyword_call => blk: {
+                const target = try self.parseIdentifier();
+                var args: std.ArrayList(ast.RValue) = .empty;
+                errdefer args.deinit(allocator);
+
+                while (!self.check(.r_paren) and !self.check(.eof)) {
+                    const arg = try self.parseRValue();
+                    try args.append(allocator, arg);
+                }
+
+                const owned_args = try args.toOwnedSlice(allocator);
+                break :blk .{
+                    .expr = .{
+                        .call = .{
+                            .target = target,
+                            .args = owned_args,
+                        },
+                    },
+                };
+            },
+            .keyword_let => blk: {
+                const dest = try self.parseIdentifier();
+                var expr: ast.Expression = undefined;
+
+                if (self.check(.l_paren)) {
+                    expr = try self.parseExpression(allocator);
+                } else {
+                    log.debug("got expr in let", .{});
+                    const rval = try self.parseRValue();
+                    expr = .{ .val = rval };
+                    log.debug("{any}", .{self.curToken});
+                }
+
+                break :blk .{
+                    .let = .{
+                        .dest = dest,
+                        .expr = expr,
+                    },
+                };
+            },
+            .keyword_if => blk: {
+                const condition = try self.parseExpression(allocator);
+                var body: std.ArrayList(ast.Node) = .empty;
+                errdefer {
+                    for (body.items) |*n| n.deinit(allocator);
+                    body.deinit(allocator);
+                }
+                while (!self.check(.r_paren) and !self.check(.eof)) {
+                    try self.consume(.l_paren, "Expected '(' to start instruction in if body");
+                    try body.append(allocator, try self.parseInstruction(allocator));
+                }
+                break :blk .{
+                    .@"if" = .{
+                        .cond = condition,
+                        .body = try body.toOwnedSlice(allocator),
+                    },
+                };
             },
             else => {
                 log.err("Unknown instruction '{any}'", .{tag});
@@ -85,12 +153,67 @@ pub const Parser = struct {
         return node;
     }
 
+    fn parseExpression(self: *Parser, allocator: std.mem.Allocator) !ast.Expression {
+        try self.consume(.l_paren, "Expected '(' to start expresion");
+
+        const tag = self.curToken.tag;
+        self.advance();
+
+        const expr: ast.Expression = switch (tag) {
+            .keyword_call => bkl: {
+                const target = try self.parseIdentifier();
+                var args: std.ArrayList(ast.RValue) = .empty;
+                errdefer args.deinit(allocator);
+
+                while (!self.check(.r_paren) and !self.check(.eof)) {
+                    try args.append(allocator, try self.parseRValue());
+                }
+
+                break :bkl .{ .call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
+            },
+            .keyword_lt, .keyword_add, .keyword_sub => blk: {
+                const op: ast.BinaryOp = switch (tag) {
+                    .keyword_lt => .lt,
+                    .keyword_add => .add,
+                    .keyword_sub => .sub,
+                    else => unreachable,
+                };
+                const lhs = try self.parseRValue();
+                const rhs = try self.parseRValue();
+                break :blk .{ .binary = .{
+                    .op = op,
+                    .lhs = lhs,
+                    .rhs = rhs,
+                } };
+            },
+            else => {
+                log.err("Unknown expression operator {any}", .{tag});
+                return error.UnknownExpression;
+            },
+        };
+
+        try self.consume(.r_paren, "Expected ')' to close expression");
+
+        return expr;
+    }
+
     fn parseRValue(self: *Parser) !ast.RValue {
         if (self.check(.string_literal)) {
             const rawToken = self.lexer.getTokenStr(self.curToken);
             const content = rawToken[1 .. rawToken.len - 1]; // remove '"'
             self.advance();
             return ast.RValue{ .Val = .{ .string = content } };
+        }
+        if (self.check(.identifier)) {
+            const rawToken = self.lexer.getTokenStr(self.curToken);
+            self.advance();
+            return ast.RValue{ .Ref = .{ .identifier = rawToken } };
+        }
+        if (self.check(.number_literal)) {
+            const rawToken = self.lexer.getTokenStr(self.curToken);
+            const value = try std.fmt.parseInt(i64, rawToken, 10);
+            self.advance();
+            return .{ .Val = .{ .integer = value } };
         }
         return error.ExpectedValue;
     }

@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Opcode = enum(u8) {
-    // MOVE,       // R(A) = R(B)
+    MOVE,       // R(A) = R(B)
     LOADK, // R(A) = K(Bx)
     // LOADNIL,    // R(A) = nil
     // LOADBOOL,   // R(A) = bool(B)
@@ -77,9 +77,9 @@ pub const Instruction = packed struct {
             .CALL => {
                 try writer.print("R{d} {d}", .{ self.A, self.B });
             },
-            // .MOVE => {
-            //     try writer.print("R\x1b[32m{d}\x1b[0m R\x1b[32m{d}\x1b[0m", .{ self.A, self.B });
-            // },
+            .MOVE => {
+                try writer.print("R{d} R{d}", .{ self.A, self.B });
+            },
             else => {
                 // ABC format
                 try writer.print("R{d}  R{d}  R{d}", .{ self.A, self.B, self.C });

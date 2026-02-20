@@ -1,0 +1,9 @@
+(module
+ (func $_start
+  (call $greet "hello")
+  (return))
+
+ (func $greet (param $msg)
+  (print $msg)
+  (return)
+ ))
