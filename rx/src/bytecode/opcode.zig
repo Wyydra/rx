@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Opcode = enum(u8) {
-    MOVE,       // R(A) = R(B)
+    MOVE,  // R(A) = R(B)
     LOADK, // R(A) = K(Bx)
     // LOADNIL,    // R(A) = nil
     // LOADBOOL,   // R(A) = bool(B)
@@ -18,9 +18,22 @@ pub const Opcode = enum(u8) {
     JF, // IF NOT R(A) JMP += Bx
 
     CALL, // CALL R(A) B
-    RET, // RETURN R(A)
+    RET,  // RETURN R(A)
 
     PRINT, // PRINT R(A)
+
+    pub inline fn reductionCost(self: Opcode) usize {
+        return switch (self) {
+            .MOVE, .LOADK => 1,
+            .ADD, .SUB, .LT, .GT => 1,
+            .JF => 2,
+            .CALL => 4,
+            .RET => 3,
+            .SEND => 8,
+            .RECV => 2,
+            .PRINT => 6,
+        };
+    }
 };
 
 pub const Instruction = packed struct {

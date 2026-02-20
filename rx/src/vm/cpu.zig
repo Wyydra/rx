@@ -304,7 +304,8 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
             },
         }
 
-        budget -= 1;
+        const cost = instr.getOpcode().reductionCost();
+        budget = if (cost >= budget) 0 else budget - cost;
     }
     proc.saved_ip = ip; // save resume point — never touch caller_ip in frames
 
