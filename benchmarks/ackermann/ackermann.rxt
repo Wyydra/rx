@@ -1,0 +1,23 @@
+(module
+ (func $ack (param $m) (param $n)
+  (if (lt $m 1)
+   (let $res1 (add $n 1))
+   (return $res1))
+
+  (if (lt $n 1)
+   (let $m1 (sub $m 1))
+   (let $res2 (call $ack $m1 1))
+   (return $res2))
+
+  (let $m2 (sub $m 1))
+  (let $n1 (sub $n 1))
+  (let $tmp (call $ack $m $n1))
+  (let $res3 (call $ack $m2 $tmp))
+  (return $res3)
+ )
+ (func $_start
+  (let $result (call $ack 3 7))
+  (print $result)
+  (return 0)
+ )
+)
