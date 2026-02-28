@@ -4,7 +4,7 @@ const Heap = @import("heap.zig").Heap;
 const Closure = @import("closure.zig");
 const Function = @import("function.zig");
 
-pub const HeapObject = struct {
+pub const HeapObject = packed struct {
     pub const Kind = enum(u8) {
         closure,
         function,
@@ -195,7 +195,6 @@ pub const Value = packed struct {
                         try writer.print("<Function arity={d}>", .{meta.arity});
                     },
                 }
-
             },
         }
     }
