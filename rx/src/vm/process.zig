@@ -3,6 +3,7 @@ const Value = @import("../memory/value.zig").Value;
 const HeapObject = @import("../memory/value.zig").HeapObject;
 const Function = @import("../memory/function.zig");
 const Closure = @import("../memory/closure.zig");
+const Tuple = @import("../memory/tuple.zig");
 const Receiver = @import("interface.zig").Receiver;
 const ActorId = @import("actor.zig").ActorId;
 const Heap = @import("../memory/heap.zig").Heap;
@@ -27,6 +28,7 @@ pub const Process = struct {
     heap: *Heap,
 
     mailbox: std.ArrayList(Value),
+    mailbox_head: usize = 0,
 
     stack: std.ArrayList(Value),
     frames: std.ArrayList(CallFrame),
@@ -35,8 +37,6 @@ pub const Process = struct {
 
     allocator: std.mem.Allocator,
 
-    /// Initial register-window capacity. 16 should be enough for shallow programs;
-    /// ArrayList will grow automatically if deeper frames need more.
     const INITIAL_STACK_SIZE: usize = 16;
     const INITIAL_FRAME_CAPACITY: usize = 8;
 
@@ -46,6 +46,7 @@ pub const Process = struct {
         self.node = .{ .prev = null, .next = null };
         self.pid = pid;
         self.mailbox = .empty;
+        self.mailbox_head = 0;
 
         self.heap = try allocator.create(Heap); // TODO: right way to do this?
         self.heap.* = try Heap.init(allocator, Heap.DEFAULT_SIZE);
@@ -56,7 +57,6 @@ pub const Process = struct {
 
         self.allocator = allocator;
 
-        // Pre-allocate to avoid reallocs during the hot dispatch loop.
         try self.stack.ensureTotalCapacity(allocator, 1 + INITIAL_STACK_SIZE);
         try self.frames.ensureTotalCapacity(allocator, INITIAL_FRAME_CAPACITY);
 
@@ -82,18 +82,29 @@ pub const Process = struct {
     }
 
     pub fn push(self: *Process, msg: Value) !void {
-        try self.mailbox.append(self.allocator, msg);
+        const local_msg = try self.heap.deepCopyValue(msg);
+        try self.mailbox.append(self.allocator, local_msg);
     }
 
     pub fn pop(self: *Process) ?Value {
-        if (self.mailbox.items.len == 0) {
-            return null;
+        if (self.mailbox_head >= self.mailbox.items.len) return null;
+
+        const msg = self.mailbox.items[self.mailbox_head];
+        self.mailbox_head += 1;
+
+        // Periodic compaction: slide remaining items to front every 64 pops
+        if (self.mailbox_head >= 64) {
+            const remaining = self.mailbox.items[self.mailbox_head..];
+            std.mem.copyForwards(Value, self.mailbox.items[0..remaining.len], remaining);
+            self.mailbox.items.len = remaining.len;
+            self.mailbox_head = 0;
         }
-        return self.mailbox.orderedRemove(0);
+
+        return msg;
     }
 
     pub fn collectGarbage(self: *Process) !void {
-        const heap = &self.heap;
+        const heap = self.heap;
 
         heap.copy_offset = 0;
         heap.scanned_offset = 0;
@@ -133,6 +144,12 @@ pub const Process = struct {
                         try heap.copyValue(val);
                     }
                 },
+                .tuple => {
+                    const elems = Tuple.slice(currentObj);
+                    for (elems) |*val| {
+                        try heap.copyValue(val);
+                    }
+                },
             }
 
             const totalSize = @sizeOf(HeapObject) + currentObj.size;
@@ -146,7 +163,7 @@ pub const Process = struct {
             const oldStringObj = entry.value_ptr.*;
 
             if (oldStringObj.isMoved()) {
-                const newStringObj = oldStringObj.getForwardingPointer().?;
+                const newStringObj = oldStringObj.getForwardingPointer();
 
                 const newPayload_ptr = @as([*]const u8, @ptrCast(newStringObj)) + @sizeOf(HeapObject);
                 const newMeta = @as(*const StringMeta, @ptrCast(@alignCast(newPayload_ptr)));
@@ -165,6 +182,18 @@ pub const Process = struct {
         heap.to_space = temp;
 
         heap.offset = heap.copy_offset;
+    }
+
+    pub fn alloc(self: *Process, kind: HeapObject.Kind, payload_size: usize) !*HeapObject {
+        if (self.heap.allocUnsafe(kind, payload_size)) |obj| {
+            return obj;
+        } else |err| {
+            if (err != error.OutOfMemory) return err;
+        }
+
+        try self.collectGarbage();
+
+        return self.heap.allocUnsafe(kind, payload_size);
     }
 
     fn receiveImpl(ptr: *anyopaque, msg: Value) bool {

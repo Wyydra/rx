@@ -61,6 +61,10 @@ pub const Assembler = struct {
         try self.emit(.RECV, dest_reg, 0, 0);
     }
 
+    pub fn spawn(self: *Assembler, dest_reg: u8, closure_reg: u8) !void {
+        try self.emit(.SPAWN, dest_reg, closure_reg, 0);
+    }
+
     pub fn ret(self: *Assembler, reg: u8) !void {
         try self.emit(.RET, reg, 0, 0);
     }

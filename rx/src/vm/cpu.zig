@@ -2,6 +2,7 @@ const std = @import("std");
 const Process = @import("process.zig").Process;
 const Closure = @import("../memory/closure.zig");
 const Function = @import("../memory/function.zig");
+const Tuple = @import("../memory/tuple.zig");
 const Instruction = @import("../bytecode/opcode.zig").Instruction;
 const Value = @import("../memory/value.zig").Value;
 const ActorId = @import("actor.zig").ActorId;
@@ -178,6 +179,17 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                     return ExecutionResult.waiting(.message, 0);
                 }
             },
+            .SPAWN => {
+                // SPAWN R(A), R(B)
+                // R(B) = Closure to spawn
+                // R(A) = PID of new process (as integer)
+                const closure_val = stack[base + instr.B];
+                if (!closure_val.isClosure()) return ExecutionResult.err(.invalid_instruction);
+                const closure_obj = closure_val.asClosure() catch unreachable;
+
+                const new_pid = scheduler.spawn(closure_obj) catch return ExecutionResult.err(.out_of_memory);
+                stack[base + instr.A] = Value.integer(@intCast(new_pid.toInt()));
+            },
             .LOADK => {
                 // R[A] = Constants[Bx]
                 const val = constants[instr.getBx()];
@@ -253,6 +265,16 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 function = Closure.getFunction(closure);
                 code = Function.getCode(function);
                 constants = Function.getConstants(function);
+            },
+            .NEWTUPLE => {
+                const count = instr.B;
+                const obj = proc.alloc(.tuple, count * @sizeOf(Value)) catch return ExecutionResult.err(.out_of_memory);
+                // Copier les registres consécutifs (stack[base+A+1]...) dans le payload
+                const elems = Tuple.slice(obj);
+                for (0..count) |i| {
+                    elems[i] = stack[base + instr.A + 1 + i];
+                }
+                stack[base + instr.A] = Value.pointer(obj);
             },
             .CALL => {
                 // CALL R(A) R(B)

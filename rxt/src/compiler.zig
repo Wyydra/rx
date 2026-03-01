@@ -106,9 +106,22 @@ const Compiler = struct {
                     try a.patchJump(jump_index);
                     ctx.next_temp_reg = cond_reg;
                 },
-                else => {
-                    log.err("compilation not implemented for {}", .{node});
-                    return error.NotImplemented;
+                .send => |s| {
+                    const target_reg = try self.compileRValue(a, ctx, s.target);
+                    const msg_reg = try self.compileRValue(a, ctx, s.msg);
+                    try a.send(target_reg, msg_reg);
+                    ctx.next_temp_reg = target_reg;
+                },
+                .recv => |r| {
+                    const dest_reg: u8 = switch (r.target) {
+                        .identifier => |name| blk: {
+                            const reg = ctx.allocTempReg();
+                            try ctx.aliases.put(name, reg);
+                            break :blk reg;
+                        },
+                        .register => |reg| reg,
+                    };
+                    try a.recv(dest_reg);
                 },
             }
         }
@@ -144,6 +157,21 @@ const Compiler = struct {
                 // free tempory registers
                 ctx.next_temp_reg = dest_reg + 1;
             },
+            .tuple => |t| {
+                for (t.elements) |elem| {
+                    const elem_reg = ctx.allocTempReg();
+                    try self.compileRValueTo(a, ctx, elem, elem_reg);
+                }
+                try a.emit(.NEWTUPLE, dest_reg, @intCast(t.elements.len), 0);
+                ctx.next_temp_reg = dest_reg + 1;
+            },
+            .spawn => |s| {
+                // Compile the closure RValue into a temp register, then emit SPAWN
+                const closure_reg = ctx.allocTempReg();
+                try self.compileRValueTo(a, ctx, s.target, closure_reg);
+                try a.spawn(dest_reg, closure_reg);
+                ctx.next_temp_reg = dest_reg + 1;
+            },
             .binary => |b| {
                 const lhs_reg = try self.compileRValue(a, ctx, b.lhs);
                 const rhs_reg = try self.compileRValue(a, ctx, b.rhs);
@@ -173,9 +201,22 @@ const Compiler = struct {
         switch (rval) {
             .Val => |lit| try self.compileLiteralTo(a, lit, dest_reg),
             .Ref => |lval| {
-                const src_reg = try resolveLValue(ctx, lval);
-                if (src_reg != dest_reg) {
-                    try a.move(src_reg, dest_reg);
+                switch (lval) {
+                    .register => |reg| {
+                        if (reg != dest_reg) try a.move(reg, dest_reg);
+                    },
+                    .identifier => |name| {
+                        // First, try local variable aliases
+                        if (ctx.aliases.get(name)) |src_reg| {
+                            if (src_reg != dest_reg) try a.move(src_reg, dest_reg);
+                            // Then, try function map (e.g. `$worker` as a closure reference)
+                        } else if (self.functions.get(name)) |closure_obj| {
+                            try a.loadConstant(dest_reg, rx.memory.Value.pointer(closure_obj));
+                        } else {
+                            log.err("Unknown variable or function: {s}", .{name});
+                            return error.UnknownVariable;
+                        }
+                    },
                 }
             },
         }

@@ -1,7 +1,14 @@
 (module
+ (func $worker
+  (recv $msg)
+  (print $msg)
+  (return)
+ )
+
  (func $_start
-  (let $n 1)
-  (if (lt 2 $n)
-   (print "lt"))
-  (return))
- ))
+  (let $worker_pid (spawn $worker))
+  (let $msg (tuple "hello" 42))
+  (send $worker_pid $msg)
+  (return)
+ )
+)

@@ -84,6 +84,15 @@ pub const Parser = struct {
             .keyword_return => .{
                 .ret = self.parseRValue() catch ast.RValue{ .Val = .void },
             },
+            .keyword_send => .{
+                .send = .{
+                    .target = try self.parseRValue(),
+                    .msg = try self.parseRValue(),
+                },
+            },
+            .keyword_recv => .{
+                .recv = .{ .target = try self.parseLValue() },
+            },
             .keyword_call => blk: {
                 const target = try self.parseIdentifier();
                 var args: std.ArrayList(ast.RValue) = .empty;
@@ -171,6 +180,7 @@ pub const Parser = struct {
 
                 break :bkl .{ .call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
             },
+            .keyword_spawn => .{ .spawn = .{ .target = try self.parseRValue() } },
             .keyword_lt, .keyword_add, .keyword_sub => blk: {
                 const op: ast.BinaryOp = switch (tag) {
                     .keyword_lt => .lt,
@@ -185,6 +195,16 @@ pub const Parser = struct {
                     .lhs = lhs,
                     .rhs = rhs,
                 } };
+            },
+            .keyword_tuple => blk: {
+                var elements: std.ArrayList(ast.RValue) = .empty;
+                errdefer elements.deinit(allocator);
+
+                while (!self.check(.r_paren) and !self.check(.eof)) {
+                    try elements.append(allocator, try self.parseRValue());
+                }
+
+                break :blk .{ .tuple = .{ .elements = try elements.toOwnedSlice(allocator) } };
             },
             else => {
                 log.err("Unknown expression operator {any}", .{tag});
@@ -216,6 +236,16 @@ pub const Parser = struct {
             return .{ .Val = .{ .integer = value } };
         }
         return error.ExpectedValue;
+    }
+
+    fn parseLValue(self: *Parser) !ast.LValue {
+        if (self.check(.identifier)) {
+            const name = self.lexer.getTokenStr(self.curToken);
+            self.advance();
+            return .{ .identifier = name };
+        }
+        log.err("Expected identifier for LValue, got {any}", .{self.curToken.tag});
+        return error.ParseError;
     }
 
     fn parseIdentifier(self: *Parser) !ast.Identifier {

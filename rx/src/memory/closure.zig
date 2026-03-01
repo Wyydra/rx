@@ -17,7 +17,7 @@ pub fn alloc(heap: *Heap, function: *HeapObject, env_count: u32) HeapError!*Heap
 
     const payload_size = @sizeOf(u64) + (env_count * @sizeOf(Value));
 
-    const obj = try heap.alloc(.closure, payload_size);
+    const obj = try heap.allocUnsafe(.closure, payload_size);
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
     const func_slot = @as(**HeapObject, @ptrCast(@alignCast(payload_ptr)));
@@ -45,8 +45,6 @@ pub fn getFunction(obj: *const HeapObject) *HeapObject {
     return func_slot.*;
 }
 
-/// Redirect a closure's function pointer to a newly compiled function
-/// Used to patch a pre-registered placeholder after its body has been compiled
 pub fn setFunction(obj: *HeapObject, function: *HeapObject) void {
     std.debug.assert(obj.kind == .closure);
     std.debug.assert(function.kind == .function);

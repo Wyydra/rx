@@ -2,7 +2,7 @@ const std = @import("std");
 const Heap = @import("heap.zig").Heap;
 const HeapObject = @import("value.zig").HeapObject;
 
-pub const StringMeta = struct {
+pub const StringMeta = packed struct {
     hash: u32,
     len: u32,
 };
@@ -21,7 +21,7 @@ pub fn alloc(heap: *Heap, chars: []const u8) !*HeapObject {
     const meta_size = @sizeOf(StringMeta);
     const total_size = meta_size + chars.len + 1;
 
-    const obj = try heap.alloc(.string, @intCast(total_size));
+    const obj = try heap.allocUnsafe(.string, @intCast(total_size));
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
     const meta_ptr = @as(*StringMeta, @ptrCast(@alignCast(payload_ptr)));

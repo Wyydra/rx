@@ -38,6 +38,12 @@ pub const Expression = union(enum) {
         target: Identifier,
         args: []RValue,
     },
+    tuple: struct {
+        elements: []RValue,
+    },
+    spawn: struct {
+        target: RValue,
+    },
     val: RValue,
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {

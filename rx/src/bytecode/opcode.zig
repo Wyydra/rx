@@ -8,6 +8,7 @@ pub const Opcode = enum(u8) {
 
     SEND, // SEND R(A) MSG: R(B)
     RECV, // R(A) = RECV()
+    SPAWN, // R(A) = SPAWN(R(B)) — spawn a new process from closure R(B), returns PID as integer
 
     ADD, // R(A) = R(B) + R(C)
     SUB, // R(A) = R(B) - R(C)
@@ -22,6 +23,8 @@ pub const Opcode = enum(u8) {
 
     PRINT, // PRINT R(A)
 
+    NEWTUPLE, // R(A) = tuple(R(A+1)..R(A+B)), B = element count
+
     pub inline fn reductionCost(self: Opcode) usize {
         return switch (self) {
             .MOVE, .LOADK => 1,
@@ -31,7 +34,9 @@ pub const Opcode = enum(u8) {
             .RET => 3,
             .SEND => 8,
             .RECV => 2,
+            .SPAWN => 10,
             .PRINT => 6,
+            .NEWTUPLE => 4,
         };
     }
 };

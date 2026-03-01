@@ -3,12 +3,14 @@ const String = @import("string.zig");
 const Heap = @import("heap.zig").Heap;
 const Closure = @import("closure.zig");
 const Function = @import("function.zig");
+const Tuple = @import("tuple.zig");
 
 pub const HeapObject = packed struct {
     pub const Kind = enum(u8) {
         closure,
         function,
         string,
+        tuple,
     };
 
     size: u48,
@@ -209,14 +211,16 @@ pub const Value = packed struct {
                         const s = self.asString() catch unreachable;
                         try writer.print("\"{s}\"", .{s});
                     },
-                    .closure => {
-                        const count = Closure.getEnvCount(obj);
-                        const func = Closure.getFunction(obj);
-                        try writer.print("<Closure env_count={d} func=0x{x}>", .{ count, @intFromPtr(func) });
-                    },
-                    .function => {
-                        const meta = Function.getMeta(obj);
-                        try writer.print("<Function arity={d}>", .{meta.arity});
+                    .closure => try writer.writeAll("#<closure>"),
+                    .function => try writer.writeAll("#<function>"),
+                    .tuple => {
+                        const elems = Tuple.slice(obj);
+                        try writer.writeAll("(tuple");
+                        for (elems) |elem| {
+                            try writer.writeAll(" ");
+                            try elem.format(writer);
+                        }
+                        try writer.writeAll(")");
                     },
                 }
             },

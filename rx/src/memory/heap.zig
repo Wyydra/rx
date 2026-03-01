@@ -53,7 +53,7 @@ pub const Heap = struct {
         self.strings.clearRetainingCapacity();
     }
 
-    pub fn alloc(self: *Heap, kind: HeapObject.Kind, payload_size: usize) !*HeapObject {
+    pub fn allocUnsafe(self: *Heap, kind: HeapObject.Kind, payload_size: usize) !*HeapObject {
         const total_size = @sizeOf(HeapObject) + payload_size;
         const aligned_size = std.mem.alignForward(usize, total_size, 8);
 
@@ -104,5 +104,39 @@ pub const Heap = struct {
         const oldObj = value.asPointer() catch unreachable;
         const newObj = try self.copyObject(oldObj);
         value.* = Value.pointer(newObj);
+    }
+
+    /// Copy a Value from an external heap into THIS heap (for SEND message isolation).
+    pub fn deepCopyValue(self: *Heap, src: Value) HeapError!Value {
+        if (!src.isPointer()) return src; // Immediate values (int, bool, nil) are safe as-is
+
+        const srcObj = src.asPointer() catch unreachable;
+        return Value.pointer(try self.deepCopyObject(srcObj));
+    }
+
+    fn deepCopyObject(self: *Heap, src: *HeapObject) HeapError!*HeapObject {
+        const Tuple = @import("tuple.zig");
+        const String = @import("string.zig");
+
+        switch (src.kind) {
+            .string => {
+                // Re-intern the string in this heap (deduplicates automatically)
+                const chars = String.getChars(src);
+                return String.alloc(self, chars);
+            },
+            .tuple => {
+                const src_elems = Tuple.slice(src);
+                const dst_obj = try self.allocUnsafe(.tuple, src_elems.len * @sizeOf(Value));
+                const dst_elems = Tuple.slice(dst_obj);
+                for (src_elems, 0..) |elem, i| {
+                    dst_elems[i] = try self.deepCopyValue(elem);
+                }
+                return dst_obj;
+            },
+            // Closures and functions should not be sent between processes
+            // (they contain code pointers that are valid for all processes)
+            // so we simply share the pointer as read-only.
+            .closure, .function => return src,
+        }
     }
 };

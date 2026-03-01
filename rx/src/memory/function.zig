@@ -13,21 +13,14 @@ const FunctionMeta = packed struct {
     code_len: u16, // u16 = max 65535 bytes ≈ 16K instructions per function
 };
 
-pub fn alloc(
-    heap: *Heap,
-    arity: u8,
-    upvalue_count: u8,
-    max_regs: u8,
-    code: []const u8,
-    constants: []const Value
-) !*HeapObject {
+pub fn alloc(heap: *Heap, arity: u8, upvalue_count: u8, max_regs: u8, code: []const u8, constants: []const Value) !*HeapObject {
     const meta_size = @sizeOf(FunctionMeta);
     const consts_size = constants.len * @sizeOf(Value);
     const code_size = code.len;
 
     const total_size = meta_size + consts_size + code_size;
 
-    const obj = try heap.alloc(.function, @intCast(total_size));
+    const obj = try heap.allocUnsafe(.function, @intCast(total_size));
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
 
@@ -66,7 +59,7 @@ pub fn getMaxRegs(obj: *const HeapObject) u8 {
 pub fn getConstants(obj: *const HeapObject) []const Value {
     const meta = getMeta(obj);
     const offset = @sizeOf(HeapObject) + @sizeOf(FunctionMeta);
-    
+
     const ptr = @as([*]const Value, @ptrCast(@alignCast(@as([*]const u8, @ptrCast(obj)) + offset)));
     return ptr[0..meta.const_count];
 }
@@ -74,7 +67,7 @@ pub fn getConstants(obj: *const HeapObject) []const Value {
 pub fn getCode(obj: *const HeapObject) []const u8 {
     const meta = getMeta(obj);
     const offset = @sizeOf(HeapObject) + @sizeOf(FunctionMeta) + (meta.const_count * @sizeOf(Value));
-    
+
     const ptr = @as([*]const u8, @ptrCast(obj)) + offset;
     return ptr[0..meta.code_len];
 }

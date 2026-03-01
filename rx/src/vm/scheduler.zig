@@ -105,12 +105,12 @@ pub const Scheduler = struct {
                 },
 
                 .terminated => {
-                    std.log.info("Process {f} Terminated normally.", .{process.pid});
+                    std.log.debug("Process {f} Terminated normally.", .{process.pid});
                     process.deinit();
                 },
 
                 .waiting => {
-                    std.log.info("Process {f} Blocked (Reason: {d}).", .{ process.pid, result.payload });
+                    std.log.debug("Process {f} Blocked (Reason: {d}).", .{ process.pid, result.payload });
                     process.markWaiting();
                     self.waiting_queue.append(node);
                 },

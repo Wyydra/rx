@@ -10,11 +10,19 @@ pub const Token = struct {
     };
 
     const keywords = std.StaticStringMap(Tag).initComptime(.{
-        .{ "print", .keyword_print },
         .{ "module", .keyword_module },
+
+        .{ "tuple", .keyword_tuple },
+
         .{ "func", .keyword_func },
         .{ "param", .keyword_param },
+
+        .{ "print", .keyword_print },
         .{ "return", .keyword_return },
+        .{ "send",  .keyword_send  },
+        .{ "recv",  .keyword_recv  },
+        .{ "spawn", .keyword_spawn },
+
         .{ "call", .keyword_call },
         .{ "let", .keyword_let },
         .{ "if", .keyword_if },
@@ -48,6 +56,10 @@ pub const Token = struct {
         keyword_lt,
         keyword_sub,
         keyword_add,
+        keyword_tuple,
+        keyword_send,
+        keyword_recv,
+        keyword_spawn,
     };
 };
 
