@@ -1,0 +1,52 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  bench:
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── checkout ──────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Zig ───────────────────────────────────────────────────────────────
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version-file: ".zigversion"
+
+      # ── Python (already on ubuntu-latest, but explicit is better) ─────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── Lua ───────────────────────────────────────────────────────────────
+      - name: Install Lua
+        run: sudo apt-get install -y lua5.4 && sudo ln -sf /usr/bin/lua5.4 /usr/bin/lua
+
+      # ── run benchmarks ────────────────────────────────────────────────────
+      - name: Run benchmarks
+        run: |
+          python3 bench_ci.py \
+            --iterations 50 \
+            --warmup 3 \
+            --output bench_results/results.json
+
+      # ── upload raw JSON ───────────────────────────────────────────────────
+      - name: Upload JSON results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.sha }}
+          path: bench_results/results.json
+          retention-days: 90
+
+      # ── generate markdown summary ─────────────────────────────────────────
+      - name: Write job summary
+        run: python3 .github/scripts/bench_summary.py bench_results/results.json >> $GITHUB_STEP_SUMMARY
