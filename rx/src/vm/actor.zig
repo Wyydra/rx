@@ -5,7 +5,7 @@ const Scheduler = @import("scheduler.zig").Scheduler;
 const Value = @import("../memory/value.zig").Value;
 
 pub const ActorId = packed struct(u32) {
-    // kow : local index 
+    // kow : local index
     index: u24,
 
     // high 8 : scheduler id
@@ -38,7 +38,7 @@ pub const ActorId = packed struct(u32) {
         self: @This(),
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
-        try writer.print("<{d}:{d}>", .{self.scheduler_id, self.index});
+        try writer.print("<{d}:{d}>", .{ self.scheduler_id, self.index });
     }
 };
 

@@ -60,7 +60,18 @@ jobs:
         run: python3 .github/scripts/bench_summary.py bench_results/results.json >> $GITHUB_STEP_SUMMARY
 
       # ── trend tracking + régression alerts ───────────────────────────────
-      # Stocke l'historique sur la branche gh-pages et commente sur les PRs.
+      # Crée gh-pages si elle n'existe pas (premier run seulement)
+      - name: Init gh-pages branch if needed
+        run: |
+          if ! git ls-remote --exit-code origin gh-pages > /dev/null 2>&1; then
+            git checkout --orphan gh-pages
+            git rm -rf . --quiet 2>/dev/null || true
+            git commit --allow-empty -m "chore: init gh-pages for benchmark history"
+            git push origin gh-pages
+            git checkout ${{ github.sha }} --detach
+          fi
+
+      # Stocke l'historique sur gh-pages et commente sur les PRs.
       # Nécessite : Settings → Actions → "Read and write permissions"
       - name: Store benchmark trend
         uses: benchmark-action/github-action-benchmark@v1

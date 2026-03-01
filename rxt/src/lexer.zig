@@ -19,8 +19,8 @@ pub const Token = struct {
 
         .{ "print", .keyword_print },
         .{ "return", .keyword_return },
-        .{ "send",  .keyword_send  },
-        .{ "recv",  .keyword_recv  },
+        .{ "send", .keyword_send },
+        .{ "recv", .keyword_recv },
         .{ "spawn", .keyword_spawn },
 
         .{ "call", .keyword_call },
