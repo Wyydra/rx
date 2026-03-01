@@ -34,10 +34,18 @@ jobs:
       # ── run benchmarks ────────────────────────────────────────────────────
       - name: Run benchmarks
         run: |
+          # Full JSON (for artifact + summary)
           python3 bench_ci.py \
             --iterations 50 \
             --warmup 3 \
             --output bench_results/results.json
+
+          # Flat format for github-action-benchmark trend tracking
+          python3 bench_ci.py \
+            --iterations 50 \
+            --warmup 3 \
+            --format benchmark-action \
+            --output bench_results/ba.json
 
       # ── upload raw JSON ───────────────────────────────────────────────────
       - name: Upload JSON results
@@ -50,3 +58,17 @@ jobs:
       # ── generate markdown summary ─────────────────────────────────────────
       - name: Write job summary
         run: python3 .github/scripts/bench_summary.py bench_results/results.json >> $GITHUB_STEP_SUMMARY
+
+      # ── trend tracking + régression alerts ───────────────────────────────
+      # Stocke l'historique sur la branche gh-pages et commente sur les PRs.
+      # Nécessite : Settings → Actions → "Read and write permissions"
+      - name: Store benchmark trend
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: "customSmallerIsBetter"
+          output-file-path: bench_results/ba.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true                # pousse l'historique sur gh-pages
+          alert-threshold: "120%"        # alerte si médiane > +20%
+          comment-on-alert: true         # commente sur le commit/PR
+          fail-on-alert: false           # passe en true pour bloquer le merge
