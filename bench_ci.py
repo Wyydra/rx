@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """bench_ci.py — Benchmark runner with JSON output for CI artifact storage.
 
-Outputs a single JSON file (bench_results.json) with:
-  - git commit SHA & timestamp
-  - per-benchmark, per-language results (min/median/mean/max/stdev in ms)
+Outputs a JSON file with per-benchmark, per-language results.
 
 Usage:
     python3 bench_ci.py
-    python3 bench_ci.py --output results/bench_$(git rev-parse --short HEAD).json
-    python3 bench_ci.py -n 50 -w 5
+    python3 bench_ci.py -n 50 -w 5 --output bench_results/results.json
+    python3 bench_ci.py --format benchmark-action -o bench_results/ba.json
+
+Formats:
+    default           Full JSON (commit, timestamp, nested benchmarks)
+    benchmark-action  Flat [{name, value, unit}] for github-action-benchmark
 """
 
 import argparse
@@ -115,6 +117,25 @@ def benchmark_file(file: Path, n: int, warmup: int) -> dict | None:
         "stdev_ms":  round(statistics.stdev(samples_ms) if len(samples_ms) > 1 else 0.0, 4),
     }
 
+# ── output formats ───────────────────────────────────────────────────────────
+
+def to_benchmark_action(all_results: dict) -> list[dict]:
+    """Convert to github-action-benchmark's customSmallerIsBetter format.
+
+    Each entry: {"name": "fib/rxt", "value": 4.21, "unit": "ms"}
+    We emit median as the primary value (lowest noise).
+    """
+    entries: list[dict] = []
+    for bench_name, langs in all_results["benchmarks"].items():
+        for r in langs:
+            entries.append({
+                "name":  f"{bench_name}/{r['language']}",
+                "value": r["median_ms"],
+                "unit":  "ms",
+                "extra": f"mean={r['mean_ms']}ms σ={r['stdev_ms']}ms n={r['iterations']}",
+            })
+    return entries
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -122,7 +143,10 @@ def main() -> None:
     parser.add_argument("benchmark",    nargs="?",      help="Run a single benchmark by name (default: all)")
     parser.add_argument("-n", "--iterations", type=int, default=100, help="Iterations (default: 100)")
     parser.add_argument("-w", "--warmup",     type=int, default=5,   help="Warmup iterations (default: 5)")
-    parser.add_argument("-o", "--output",     default="bench_results.json", help="Output JSON file")
+    parser.add_argument("-o", "--output",     default="bench_results/results.json", help="Output JSON file")
+    parser.add_argument("-f", "--format",     default="default",
+                        choices=["default", "benchmark-action"],
+                        help="Output format (default: full JSON; benchmark-action: flat array for github-action-benchmark)")
     args = parser.parse_args()
 
     ensure_rxt()
@@ -159,11 +183,16 @@ def main() -> None:
 
         results["benchmarks"][name] = langs
 
-    # write JSON
+    # serialise
+    if args.format == "benchmark-action":
+        payload = to_benchmark_action(results)
+    else:
+        payload = results
+
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(results, indent=2))
-    print(f"\n[bench_ci] Results written to {out}")
+    out.write_text(json.dumps(payload, indent=2))
+    print(f"\n[bench_ci] Results written to {out} (format={args.format})")
 
 
 if __name__ == "__main__":
