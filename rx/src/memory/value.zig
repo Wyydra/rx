@@ -16,12 +16,9 @@ pub const HeapObject = packed struct {
     kind: Kind,
 
     pub const GC_MARK: u8 = 1 << 0;
-    pub const PINNED: u8 = 1 << 1;
-    pub const FROZEN: u8 = 1 << 2;
+    pub const FROZEN: u8 = 1 << 1;
+    pub const MOVED: u8 = 1 << 2;
 
-    pub fn isMarked(self: *const HeapObject) bool {
-        return (self.flags & GC_MARK) != 0;
-    }
     pub fn mark(self: *HeapObject) void {
         self.flags |= GC_MARK;
     }
@@ -29,11 +26,38 @@ pub const HeapObject = packed struct {
     pub fn unmark(self: *HeapObject) void {
         self.flags &= ~GC_MARK;
     }
-    pub fn isPinned(self: *const HeapObject) bool {
-        return (self.flags & PINNED) != 0;
+
+    pub fn moved(self: *HeapObject) void {
+        self.flags |= MOVED;
     }
+
+    pub fn freeze(self: *HeapObject) void {
+        self.flags |= FROZEN;
+    }
+
+    pub fn isMarked(self: *const HeapObject) bool {
+        return (self.flags & GC_MARK) != 0;
+    }
+
     pub fn isFrozen(self: *const HeapObject) bool {
         return (self.flags & FROZEN) != 0;
+    }
+    pub fn isMoved(self: *const HeapObject) bool {
+        return (self.flags & MOVED) != 0;
+    }
+
+    // Set the forwarding pointer for this object at start of payload
+    pub fn setForwardingPointer(self: *HeapObject, ptr: *HeapObject) void {
+        const payload_ptr: *usize = @ptrFromInt(@intFromPtr(self) + @sizeOf(HeapObject));
+        payload_ptr.* = @intFromPtr(ptr);
+    }
+
+    // Get the forwarding pointer for this object at start of payload
+    pub fn getForwardingPointer(self: *const HeapObject) *HeapObject {
+        std.debug.assert(self.isMoved());
+        const payload_ptr: *const usize = @ptrFromInt(@intFromPtr(self) + @sizeOf(HeapObject));
+        const addr = payload_ptr.*;
+        return @ptrFromInt(addr);
     }
 };
 

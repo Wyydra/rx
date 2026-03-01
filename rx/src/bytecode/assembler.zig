@@ -117,10 +117,9 @@ pub const Assembler = struct {
     }
 
     pub fn compileToClosure(self: *Assembler) !*HeapObject {
-        const func_obj = try Function.alloc(self.heap,
-            0,              // arity
-            0,              // upvalues
-            self.max_reg,   // peak register count, tracked by emit()
+        const func_obj = try Function.alloc(self.heap, 0, // arity
+            0, // upvalues
+            self.max_reg, // peak register count, tracked by emit()
             self.code.items, self.constants.items);
 
         return try Closure.alloc(self.heap, func_obj, 0);

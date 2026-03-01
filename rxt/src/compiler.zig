@@ -177,7 +177,7 @@ const Compiler = struct {
                 if (src_reg != dest_reg) {
                     try a.move(src_reg, dest_reg);
                 }
-            }
+            },
         }
     }
 

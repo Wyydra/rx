@@ -20,7 +20,7 @@ pub fn alloc(heap: *Heap, function: *HeapObject, env_count: u32) HeapError!*Heap
     const obj = try heap.alloc(.closure, payload_size);
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
-    const func_slot = @as(* *HeapObject, @ptrCast(@alignCast(payload_ptr)));
+    const func_slot = @as(**HeapObject, @ptrCast(@alignCast(payload_ptr)));
 
     func_slot.* = function;
 
@@ -64,7 +64,9 @@ pub fn getEnv(obj: *HeapObject) []Value {
 
     const env_offset = @sizeOf(HeapObject) + @sizeOf(*HeapObject);
     const env_ptr = @as([*]Value, @ptrCast(@alignCast(@as([*]u8, @ptrCast(obj)) + env_offset)));
-    return env_ptr[0..obj.size];
+
+    const count = getEnvCount(obj);
+    return env_ptr[0..count];
 }
 
 pub fn getEnvValue(obj: *HeapObject, index: u32) Value {

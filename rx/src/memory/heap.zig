@@ -9,56 +9,59 @@ pub const HeapError = error{
 
 pub const Heap = struct {
     allocator: std.mem.Allocator,
-    buffer: []u8,
+
+    from_space: []u8,
+    to_space: []u8,
+
     offset: usize,
-    objects: std.ArrayList(*HeapObject),
+    capacity: usize, // size of semi space
+
+    copy_offset: usize,
+    scanned_offset: usize,
+
     strings: std.StringHashMap(*HeapObject),
-    capacity: usize,
 
     pub const DEFAULT_SIZE: usize = 1024 * 1024; // 1MB
 
     pub fn init(allocator: std.mem.Allocator, size: usize) !Heap {
-        const buffer = try allocator.alignedAlloc(u8, .@"8", size);
-        errdefer allocator.free(buffer);
-
-        var objects: std.ArrayList(*HeapObject) = .empty;
-        errdefer objects.deinit(allocator);
+        const from_buffer = try allocator.alignedAlloc(u8, .@"8", size);
+        const to_buffer = try allocator.alignedAlloc(u8, .@"8", size);
 
         var strings = std.StringHashMap(*HeapObject).init(allocator);
         errdefer strings.deinit();
 
         return Heap{
             .allocator = allocator,
-            .buffer = buffer,
+            .from_space = from_buffer,
+            .to_space = to_buffer,
             .offset = 0,
-            .objects = objects,
+            .copy_offset = 0,
+            .scanned_offset = 0,
             .strings = strings,
             .capacity = size,
         };
     }
 
     pub fn deinit(self: *Heap) void {
-        self.objects.deinit(self.allocator);
         self.strings.deinit();
-        self.allocator.free(self.buffer);
+        self.allocator.free(self.from_space);
+        self.allocator.free(self.to_space);
     }
 
     pub fn reset(self: *Heap) void {
         self.offset = 0;
-        self.objects.clearRetainingCapacity();
         self.strings.clearRetainingCapacity();
     }
 
     pub fn alloc(self: *Heap, kind: HeapObject.Kind, payload_size: usize) !*HeapObject {
         const total_size = @sizeOf(HeapObject) + payload_size;
-
         const aligned_size = std.mem.alignForward(usize, total_size, 8);
 
-        if (self.offset + aligned_size > self.buffer.len) {
+        if (self.offset + aligned_size > self.capacity) {
             return error.OutOfMemory;
         }
 
-        const ptr_int = @intFromPtr(self.buffer.ptr) + self.offset;
+        const ptr_int = @intFromPtr(self.from_space.ptr) + self.offset;
         const obj: *HeapObject = @ptrFromInt(ptr_int);
 
         self.offset += aligned_size;
@@ -69,8 +72,37 @@ pub const Heap = struct {
             .size = @intCast(payload_size),
         };
 
-        try self.objects.append(self.allocator, obj);
-
         return obj;
+    }
+
+    pub fn copyObject(self: *Heap, oldObj: *HeapObject) !*HeapObject {
+        if (oldObj.isMoved()) {
+            return oldObj.getForwardingPointer();
+        }
+
+        const total_size = @sizeOf(HeapObject) + oldObj.size;
+        const aligned_size = std.mem.alignForward(usize, total_size, 8);
+
+        const destPtrInt = @intFromPtr(self.to_space.ptr) + self.copy_offset;
+        const newObj: *HeapObject = @ptrFromInt(destPtrInt);
+
+        const srcSlice = @as([*]u8, @ptrCast(oldObj))[0..aligned_size];
+        const destSlice = @as([*]u8, @ptrCast(newObj))[0..aligned_size];
+        @memcpy(destSlice, srcSlice);
+
+        self.copy_offset += aligned_size;
+
+        oldObj.moved();
+        oldObj.setForwardingPointer(newObj);
+
+        return newObj;
+    }
+
+    pub fn copyValue(self: *Heap, value: *Value) !void {
+        if (!value.isPointer()) return;
+
+        const oldObj = value.asPointer() catch unreachable;
+        const newObj = try self.copyObject(oldObj);
+        value.* = Value.pointer(newObj);
     }
 };

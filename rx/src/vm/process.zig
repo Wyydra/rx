@@ -2,8 +2,11 @@ const std = @import("std");
 const Value = @import("../memory/value.zig").Value;
 const HeapObject = @import("../memory/value.zig").HeapObject;
 const Function = @import("../memory/function.zig");
+const Closure = @import("../memory/closure.zig");
 const Receiver = @import("interface.zig").Receiver;
 const ActorId = @import("actor.zig").ActorId;
+const Heap = @import("../memory/heap.zig").Heap;
+const StringMeta = @import("../memory/string.zig").StringMeta;
 
 pub const CallFrame = struct {
     base: usize,
@@ -20,6 +23,8 @@ pub const Process = struct {
 
     pid: ActorId,
     status: Status = .running,
+
+    heap: *Heap,
 
     mailbox: std.ArrayList(Value),
 
@@ -41,6 +46,9 @@ pub const Process = struct {
         self.node = .{ .prev = null, .next = null };
         self.pid = pid;
         self.mailbox = .empty;
+
+        self.heap = try allocator.create(Heap); // TODO: right way to do this?
+        self.heap.* = try Heap.init(allocator, Heap.DEFAULT_SIZE);
 
         self.stack = .empty;
         self.frames = .empty;
@@ -68,6 +76,8 @@ pub const Process = struct {
         self.stack.deinit(self.allocator);
         self.frames.deinit(self.allocator);
         self.mailbox.deinit(self.allocator);
+        self.heap.deinit();
+        self.allocator.destroy(self.heap);
         self.allocator.destroy(self);
     }
 
@@ -80,6 +90,81 @@ pub const Process = struct {
             return null;
         }
         return self.mailbox.orderedRemove(0);
+    }
+
+    pub fn collectGarbage(self: *Process) !void {
+        const heap = &self.heap;
+
+        heap.copy_offset = 0;
+        heap.scanned_offset = 0;
+
+        for (self.stack.items) |*value| {
+            try heap.copyValue(value);
+        }
+
+        for (self.frames.items) |*frame| {
+            frame.closure = try heap.copyObject(frame.closure);
+        }
+
+        for (self.mailbox.items) |*value| { // TODO: is this needed ?
+            try heap.copyValue(value);
+        }
+
+        while (heap.scanned_offset < heap.copy_offset) {
+            const currentObjPtr = @intFromPtr(heap.to_space.ptr) + heap.scanned_offset;
+            const currentObj: *HeapObject = @ptrFromInt(currentObjPtr);
+
+            switch (currentObj.kind) {
+                .string => {},
+                .closure => {
+                    const env = Closure.getEnv(currentObj);
+                    for (env) |*val| {
+                        try heap.copyValue(val);
+                    }
+
+                    const func = Closure.getFunction(currentObj);
+                    const newFunc = try heap.copyObject(func);
+                    Closure.setFunction(currentObj, newFunc);
+                },
+                .function => {
+                    const constsConst = Function.getConstants(currentObj);
+                    const consts = @as([*]Value, @ptrCast(@constCast(constsConst.ptr)))[0..constsConst.len];
+                    for (consts) |*val| {
+                        try heap.copyValue(val);
+                    }
+                },
+            }
+
+            const totalSize = @sizeOf(HeapObject) + currentObj.size;
+            heap.scanned_offset += std.mem.alignForward(usize, totalSize, 8);
+        }
+
+        var newStrings = std.StringHashMap(*HeapObject).init(heap.allocator);
+
+        var it = heap.strings.iterator();
+        while (it.next()) |entry| {
+            const oldStringObj = entry.value_ptr.*;
+
+            if (oldStringObj.isMoved()) {
+                const newStringObj = oldStringObj.getForwardingPointer().?;
+
+                const newPayload_ptr = @as([*]const u8, @ptrCast(newStringObj)) + @sizeOf(HeapObject);
+                const newMeta = @as(*const StringMeta, @ptrCast(@alignCast(newPayload_ptr)));
+                const newChars_ptr = newPayload_ptr + @sizeOf(StringMeta);
+                const newKey = newChars_ptr[0..newMeta.len];
+
+                try newStrings.put(newKey, newStringObj);
+            }
+        }
+
+        heap.strings.deinit();
+        heap.strings = newStrings;
+
+        const temp = heap.from_space;
+        heap.from_space = heap.to_space;
+        heap.to_space = temp;
+
+        heap.offset = heap.copy_offset;
     }
 
     fn receiveImpl(ptr: *anyopaque, msg: Value) bool {

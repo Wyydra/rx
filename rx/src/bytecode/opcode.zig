@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Opcode = enum(u8) {
-    MOVE,  // R(A) = R(B)
+    MOVE, // R(A) = R(B)
     LOADK, // R(A) = K(Bx)
     // LOADNIL,    // R(A) = nil
     // LOADBOOL,   // R(A) = bool(B)
@@ -18,7 +18,7 @@ pub const Opcode = enum(u8) {
     JF, // IF NOT R(A) JMP += Bx
 
     CALL, // CALL R(A) B
-    RET,  // RETURN R(A)
+    RET, // RETURN R(A)
 
     PRINT, // PRINT R(A)
 

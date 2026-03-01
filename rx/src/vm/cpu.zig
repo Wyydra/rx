@@ -222,8 +222,6 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 if (a.asBoolean()) |cond| {
                     if (!cond) ip += instr.getBx();
                 } else |_| {
-                    std.debug.print("[DBG] JF crash: base={d} R({d})={any} ip={d}\n",
-                        .{ base, instr.A, a, ip - 4 });
                     return ExecutionResult.err(.invalid_instruction);
                 }
             },
@@ -249,7 +247,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
 
                 base = caller_base;
                 ip = popped_frame.caller_ip; // restore to CALLER's original continuation
-                proc.saved_ip = ip;          // keep proc.saved_ip in sync for preemption
+                proc.saved_ip = ip; // keep proc.saved_ip in sync for preemption
 
                 closure = frame.closure;
                 function = Closure.getFunction(closure);

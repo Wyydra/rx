@@ -26,7 +26,7 @@ pub const RValue = union(enum) {
     Val: Literal,
 };
 
-pub const BinaryOp =  enum { add, sub, lt, gt };
+pub const BinaryOp = enum { add, sub, lt, gt };
 
 pub const Expression = union(enum) {
     binary: struct {

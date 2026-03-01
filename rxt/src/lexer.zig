@@ -152,7 +152,7 @@ pub const Lexer = struct {
                         result.tag = .invalid;
                         break;
                     },
-                    else => {}
+                    else => {},
                 },
                 .identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
