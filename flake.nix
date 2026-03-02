@@ -18,7 +18,7 @@
       in
       {
         devShells.default = pkgs.mkShell { 
-            packages = with pkgs; [ zig zls wasmtime python3 just lua ]; 
+            packages = with pkgs; [ zig zls wasmtime python3 just lua samply valgrind kdePackages.kcachegrind ];
             shellHook = ''
               export ZIG_GLOBAL_CACHE_DIR=.zig-cache
               echo $ZIG_GLOBAL_CACHE_DIR

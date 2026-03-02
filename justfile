@@ -5,6 +5,8 @@ run-web:
   cd www && python3 -m http.server 8080
 
 watch:
-  #!/usr/bin/env bash
   zig build --watch
 
+profile script="benchmarks/fib/fib.rxt":
+  zig build -Doptimize=ReleaseSafe
+  valgrind --tool=callgrind ./zig-out/bin/rxt {{script}}
