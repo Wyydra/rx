@@ -8,7 +8,7 @@ pub const Opcode = enum(u8) {
 
     SEND, // SEND R(A) MSG: R(B)
     RECV, // R(A) = RECV()
-    SPAWN, // R(A) = SPAWN(R(B)) — spawn a new process from closure R(B), returns PID as integer
+    SPAWN, // R(A) = SPAWN(R(B), C) — spawn a new process from closure R(B) with C args, returns PID as integer
 
     ADD, // R(A) = R(B) + R(C)
     SUB, // R(A) = R(B) - R(C)
@@ -88,6 +88,9 @@ pub const Instruction = packed struct {
             },
             .SEND => {
                 try writer.print("R{d} R{d}", .{ self.A, self.B });
+            },
+            .SPAWN => {
+                try writer.print("R{d} R{d} {d}", .{ self.A, self.B, self.C });
             },
             .JF => {
                 try writer.print("R{d} +{d}", .{ self.A, self.getBx() });

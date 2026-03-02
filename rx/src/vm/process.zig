@@ -40,7 +40,7 @@ pub const Process = struct {
     const INITIAL_STACK_SIZE: usize = 16;
     const INITIAL_FRAME_CAPACITY: usize = 8;
 
-    pub fn init(allocator: std.mem.Allocator, pid: ActorId, main_closure: *HeapObject) !*Process {
+    pub fn init(allocator: std.mem.Allocator, pid: ActorId, main_closure: *HeapObject, args: []const Value) !*Process {
         const self = try allocator.create(Process);
 
         self.node = .{ .prev = null, .next = null };
@@ -57,11 +57,17 @@ pub const Process = struct {
 
         self.allocator = allocator;
 
-        try self.stack.ensureTotalCapacity(allocator, 1 + INITIAL_STACK_SIZE);
+        const max_initial_stack = @max(INITIAL_STACK_SIZE, args.len + 1); // +1 because closure is index 0
+        try self.stack.ensureTotalCapacity(allocator, max_initial_stack);
         try self.frames.ensureTotalCapacity(allocator, INITIAL_FRAME_CAPACITY);
 
         self.stack.appendAssumeCapacity(Value.pointer(main_closure));
-        for (0..INITIAL_STACK_SIZE) |_| self.stack.appendAssumeCapacity(Value.nil());
+        for (args) |arg_val| {
+            // we must copy the values into the new process heap because they currently live in another process memory
+            const local_val = try self.heap.deepCopyValue(arg_val);
+            self.stack.appendAssumeCapacity(local_val);
+        }
+        for (0..(max_initial_stack - 1 - args.len)) |_| self.stack.appendAssumeCapacity(Value.nil());
 
         self.frames.appendAssumeCapacity(.{
             .base = 1,

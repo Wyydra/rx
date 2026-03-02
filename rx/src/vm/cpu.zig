@@ -180,14 +180,19 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 }
             },
             .SPAWN => {
-                // SPAWN R(A), R(B)
+                // SPAWN R(A) R(B) C
                 // R(B) = Closure to spawn
+                // C = Number of arguments following R(B)
                 // R(A) = PID of new process (as integer)
-                const closure_val = stack[base + instr.B];
+                const closure_idx = base + instr.B;
+                const closure_val = stack[closure_idx];
                 if (!closure_val.isClosure()) return ExecutionResult.err(.invalid_instruction);
                 const closure_obj = closure_val.asClosure() catch unreachable;
 
-                const new_pid = scheduler.spawn(closure_obj) catch return ExecutionResult.err(.out_of_memory);
+                const args_count = instr.C;
+                const args = stack[closure_idx + 1 .. closure_idx + 1 + args_count];
+
+                const new_pid = scheduler.spawn(closure_obj, args) catch return ExecutionResult.err(.out_of_memory);
                 stack[base + instr.A] = Value.integer(@intCast(new_pid.toInt()));
             },
             .LOADK => {

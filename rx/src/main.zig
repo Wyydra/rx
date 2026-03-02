@@ -43,7 +43,7 @@ pub fn main() !void {
     try asm_caller.dump(&stdout);
 
     const closure_caller = try asm_caller.compileToClosure();
-    _ = try scheduler.spawn(closure_caller);
+    _ = try scheduler.spawn(closure_caller, &.{});
 
     try scheduler.execute();
 }

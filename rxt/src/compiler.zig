@@ -77,11 +77,14 @@ const Compiler = struct {
     }
 
     fn compileBody(self: *Compiler, a: *rx.bytecode.Assembler, ctx: *FuncContext, body: []const ast.Node) !void {
-        for (body) |node| {
+        for (body, 0..) |node, index| {
+            const is_last = index == body.len - 1;
+
             switch (node) {
-                .print => |p| {
-                    const reg = try self.compileRValue(a, ctx, p);
-                    try a.print(reg);
+                .print => |e| {
+                    const dest_reg = ctx.allocTempReg();
+                    try self.compileExpression(a, ctx, e, dest_reg);
+                    try a.print(dest_reg);
                 },
                 .ret => |r| {
                     const reg = try self.compileRValue(a, ctx, r);
@@ -95,7 +98,12 @@ const Compiler = struct {
                 .expr => |e| {
                     const dest_reg = ctx.allocTempReg();
                     try self.compileExpression(a, ctx, e, dest_reg);
-                    ctx.next_temp_reg = dest_reg; // reset reg
+
+                    if (is_last) {
+                        try a.ret(dest_reg);
+                    } else {
+                        ctx.next_temp_reg = dest_reg; // reset reg
+                    }
                 },
                 .@"if" => |i| {
                     const cond_reg = ctx.allocTempReg();
@@ -112,18 +120,13 @@ const Compiler = struct {
                     try a.send(target_reg, msg_reg);
                     ctx.next_temp_reg = target_reg;
                 },
-                .recv => |r| {
-                    const dest_reg: u8 = switch (r.target) {
-                        .identifier => |name| blk: {
-                            const reg = ctx.allocTempReg();
-                            try ctx.aliases.put(name, reg);
-                            break :blk reg;
-                        },
-                        .register => |reg| reg,
-                    };
-                    try a.recv(dest_reg);
-                },
             }
+        }
+
+        if (body.len == 0 or (std.meta.activeTag(body[body.len - 1]) != .ret and std.meta.activeTag(body[body.len - 1]) != .expr)) {
+            const ret_reg = ctx.allocTempReg();
+            try a.loadConstant(ret_reg, rx.memory.Value.nil());
+            try a.ret(ret_reg);
         }
     }
 
@@ -166,11 +169,29 @@ const Compiler = struct {
                 ctx.next_temp_reg = dest_reg + 1;
             },
             .spawn => |s| {
-                // Compile the closure RValue into a temp register, then emit SPAWN
                 const closure_reg = ctx.allocTempReg();
                 try self.compileRValueTo(a, ctx, s.target, closure_reg);
-                try a.spawn(dest_reg, closure_reg);
-                ctx.next_temp_reg = dest_reg + 1;
+
+                for (s.args, 0..) |arg, i| {
+                    const arg_reg = ctx.allocTempReg();
+                    std.debug.assert(arg_reg == closure_reg + 1 + i); // sanity check, args placed immediately after closure
+
+                    switch (arg) {
+                        .Val => |lit| {
+                            try self.compileLiteralTo(a, lit, arg_reg);
+                        },
+                        .Ref => |lval| {
+                            const src_reg = try resolveLValue(ctx, lval);
+                            try a.move(src_reg, arg_reg);
+                        },
+                    }
+                }
+
+                try a.spawn(dest_reg, closure_reg, @intCast(s.args.len));
+                ctx.next_temp_reg = dest_reg + 1; // free temps used by args and closure
+            },
+            .recv => {
+                try a.recv(dest_reg);
             },
             .binary => |b| {
                 const lhs_reg = try self.compileRValue(a, ctx, b.lhs);

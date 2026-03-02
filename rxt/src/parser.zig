@@ -52,20 +52,31 @@ pub const Parser = struct {
 
         log.debug("Compiling func {s}", .{name});
 
+        // parse params
+        log.debug("start params", .{});
+        try self.consume(.l_paren, "Expected '(' to start params");
         while (!self.check(.r_paren) and !self.check(.eof)) {
-            try self.consume(.l_paren, "Expected '(' to start instruction or metadata");
-
-            if (self.match(.keyword_param)) {
+            if (self.check(.identifier)) {
                 const param = try self.parseIdentifier();
                 try params.append(allocator, param);
-                try self.consume(.r_paren, "Expected ')' closing param");
+                log.debug("found param '{s}'", .{param});
             } else {
-                const node = try self.parseInstruction(allocator);
-                try nodes.append(allocator, node);
+                log.err("Parse Error: {s} Got: {any}\n", .{ "Expected identifier", self.curToken.tag });
+                return error.ParseError;
             }
+        }
+        try self.consume(.r_paren, "Expected ')' to close function params list");
+        log.debug("end params", .{});
+
+        log.debug("start instructions", .{});
+        while (!self.check(.r_paren) and !self.check(.eof)) {
+            try self.consume(.l_paren, "Expected '(' to start instruction or metadata");
+            const node = try self.parseInstruction(allocator);
+            try nodes.append(allocator, node);
         }
 
         try self.consume(.r_paren, "Expected ')' to close function declaration");
+        log.debug("end instructions", .{});
 
         return ast.FuncDecl{
             .name = name,
@@ -78,9 +89,7 @@ pub const Parser = struct {
         const tag = self.curToken.tag;
         self.advance();
         const node: ast.Node = switch (tag) {
-            .keyword_print => .{
-                .print = try self.parseRValue(),
-            },
+            .keyword_print => .{ .print = .{ .val = try self.parseRValue() } },
             .keyword_return => .{
                 .ret = self.parseRValue() catch ast.RValue{ .Val = .void },
             },
@@ -91,7 +100,7 @@ pub const Parser = struct {
                 },
             },
             .keyword_recv => .{
-                .recv = .{ .target = try self.parseLValue() },
+                .expr = .{ .recv = {} },
             },
             .keyword_call => blk: {
                 const target = try self.parseIdentifier();
@@ -180,7 +189,18 @@ pub const Parser = struct {
 
                 break :bkl .{ .call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
             },
-            .keyword_spawn => .{ .spawn = .{ .target = try self.parseRValue() } },
+            .keyword_recv => .{ .recv = {} },
+            .keyword_spawn => blk: {
+                const target = try self.parseRValue();
+                var args: std.ArrayList(ast.RValue) = .empty;
+                errdefer args.deinit(allocator);
+
+                while (!self.check(.r_paren) and !self.check(.eof)) {
+                    try args.append(allocator, try self.parseRValue());
+                }
+
+                break :blk .{ .spawn = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
+            },
             .keyword_lt, .keyword_add, .keyword_sub => blk: {
                 const op: ast.BinaryOp = switch (tag) {
                     .keyword_lt => .lt,

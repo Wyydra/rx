@@ -1,5 +1,5 @@
 (module
- (func $ack (param $m) (param $n)
+ (func $ack ($m $n)
   (if (lt $m 1)
    (let $res1 (add $n 1))
    (return $res1))
@@ -15,7 +15,7 @@
   (let $res3 (call $ack $m2 $tmp))
   (return $res3)
  )
- (func $_start
+ (func $_start ()
   (let $result (call $ack 3 7))
   (print $result)
   (return 0)

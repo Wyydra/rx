@@ -1,14 +1,10 @@
 (module
- (func $worker
-  (recv $msg)
+ (func $worker ($msg $id)
   (print $msg)
-  (return)
+  (print $id)
  )
 
- (func $_start
-  (let $worker_pid (spawn $worker))
-  (let $msg (tuple "hello" 42))
-  (send $worker_pid $msg)
-  (return)
+ (func $_start ()
+  (let $worker_pid (spawn $worker "hello" 42))
  )
 )

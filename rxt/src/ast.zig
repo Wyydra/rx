@@ -43,7 +43,9 @@ pub const Expression = union(enum) {
     },
     spawn: struct {
         target: RValue,
+        args: []RValue,
     },
+    recv: void,
     val: RValue,
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
@@ -51,6 +53,10 @@ pub const Expression = union(enum) {
             .call => |c| {
                 log.debug("deinit call args", .{});
                 allocator.free(c.args);
+            },
+            .spawn => |s| {
+                log.debug("deinit spawn args", .{});
+                allocator.free(s.args);
             },
             else => {},
         }
@@ -63,14 +69,11 @@ pub const Node = union(enum) {
         dest: Identifier,
         expr: Expression,
     },
-    recv: struct {
-        target: LValue,
-    },
     send: struct {
         target: RValue,
         msg: RValue,
     },
-    print: RValue,
+    print: Expression,
     ret: RValue,
     @"if": struct {
         cond: Expression,

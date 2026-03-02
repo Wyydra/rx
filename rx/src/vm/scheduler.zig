@@ -46,10 +46,10 @@ pub const Scheduler = struct {
         self.registry.deinit();
     }
 
-    pub fn spawn(self: *Scheduler, main_closure: *HeapObject) !ActorId {
+    pub fn spawn(self: *Scheduler, main_closure: *HeapObject, args: []const Value) !ActorId {
         const pid = self.nextId();
 
-        const proc = try Process.init(self.allocator, pid, main_closure);
+        const proc = try Process.init(self.allocator, pid, main_closure, args);
         try self.registry.put(pid, proc.asReceiver());
         self.run_queue.append(&proc.node);
 

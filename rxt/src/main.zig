@@ -59,7 +59,7 @@ pub fn main() !void {
     var scheduler = rx.vm.Scheduler.init(gpa_alloc, 0, &system);
     defer scheduler.deinit();
 
-    _ = try scheduler.spawn(closure);
+    _ = try scheduler.spawn(closure, &.{});
 
     try scheduler.execute();
 }

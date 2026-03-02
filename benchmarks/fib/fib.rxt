@@ -1,5 +1,5 @@
 (module
- (func $fib (param $n)
+ (func $fib ($n)
   (if (lt $n 2)
    (return $n))
 
@@ -12,10 +12,10 @@
   (let $sum (add $res1 $res2))
   (return $sum)
  )
- (func $_start
+ (func $_start ()
   (let $result (call $fib 30))
 
   (print $result)
   (return 0)
  )
- )
+)
