@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772478981110,
+  "lastUpdate": 1772483195022,
   "repoUrl": "https://github.com/Wyydra/rx",
   "entries": {
     "Benchmark": [
@@ -162,6 +162,48 @@ window.BENCHMARK_DATA = {
             "value": 0.2792,
             "unit": "ms",
             "extra": "mean=0.3037ms σ=0.0699ms n=50"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paulchopinet@gmail.com",
+            "name": "Wyydra",
+            "username": "Wyydra"
+          },
+          "committer": {
+            "email": "paulchopinet@gmail.com",
+            "name": "Wyydra",
+            "username": "Wyydra"
+          },
+          "distinct": true,
+          "id": "3b74da2e2c45cc48b96227dbbf6c9613b161d6fe",
+          "message": "fix gc dead callframe check",
+          "timestamp": "2026-03-02T21:24:51+01:00",
+          "tree_id": "e202dc1835562561c974e17a03c408ddb9c11d52",
+          "url": "https://github.com/Wyydra/rx/commit/3b74da2e2c45cc48b96227dbbf6c9613b161d6fe"
+        },
+        "date": 1772483194432,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "ackermann/rxt",
+            "value": 24.7314,
+            "unit": "ms",
+            "extra": "mean=24.8054ms σ=0.3148ms n=50"
+          },
+          {
+            "name": "fib/rxt",
+            "value": 89.084,
+            "unit": "ms",
+            "extra": "mean=89.6829ms σ=1.6619ms n=50"
+          },
+          {
+            "name": "greet/rxt",
+            "value": 0.4793,
+            "unit": "ms",
+            "extra": "mean=0.5045ms σ=0.0578ms n=50"
           }
         ]
       }
