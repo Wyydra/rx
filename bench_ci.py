@@ -128,6 +128,10 @@ def to_benchmark_action(all_results: dict) -> list[dict]:
     entries: list[dict] = []
     for bench_name, langs in all_results["benchmarks"].items():
         for r in langs:
+            # Only export 'rxt' benchmarks for the gh-pages trend tracking
+            if r['language'] != 'rxt':
+                continue
+                
             entries.append({
                 "name":  f"{bench_name}/{r['language']}",
                 "value": r["median_ms"],
