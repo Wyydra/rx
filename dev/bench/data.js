@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772473163338,
+  "lastUpdate": 1772478981110,
   "repoUrl": "https://github.com/Wyydra/rx",
   "entries": {
     "Benchmark": [
@@ -120,6 +120,48 @@ window.BENCHMARK_DATA = {
             "value": 0.4875,
             "unit": "ms",
             "extra": "mean=0.4944ms σ=0.0311ms n=50"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paulchopinet@gmail.com",
+            "name": "Wyydra",
+            "username": "Wyydra"
+          },
+          "committer": {
+            "email": "paulchopinet@gmail.com",
+            "name": "Wyydra",
+            "username": "Wyydra"
+          },
+          "distinct": true,
+          "id": "bc764ef9b4279b72e6f17e74e9756214319ccab7",
+          "message": "rxt v2",
+          "timestamp": "2026-03-02T20:14:45+01:00",
+          "tree_id": "f1fd720dbf30645c4dac71642e1bcfdad750ce10",
+          "url": "https://github.com/Wyydra/rx/commit/bc764ef9b4279b72e6f17e74e9756214319ccab7"
+        },
+        "date": 1772478979695,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "ackermann/rxt",
+            "value": 19.386,
+            "unit": "ms",
+            "extra": "mean=19.814ms σ=1.2544ms n=50"
+          },
+          {
+            "name": "fib/rxt",
+            "value": 79.2114,
+            "unit": "ms",
+            "extra": "mean=78.6342ms σ=2.8473ms n=50"
+          },
+          {
+            "name": "greet/rxt",
+            "value": 0.2792,
+            "unit": "ms",
+            "extra": "mean=0.3037ms σ=0.0699ms n=50"
           }
         ]
       }
