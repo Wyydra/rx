@@ -115,7 +115,14 @@ pub const Process = struct {
         heap.copy_offset = 0;
         heap.scanned_offset = 0;
 
-        for (self.stack.items) |*value| {
+        var active_stack_len: usize = 0;
+        if (self.frames.items.len > 0) {
+            const top_frame = self.frames.items[self.frames.items.len - 1];
+            const func = Closure.getFunction(top_frame.closure);
+            active_stack_len = top_frame.base + Function.getMaxRegs(func);
+        }
+
+        for (self.stack.items[0..active_stack_len]) |*value| {
             try heap.copyValue(value);
         }
 
