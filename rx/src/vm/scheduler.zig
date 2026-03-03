@@ -4,6 +4,7 @@ const Process = @import("process.zig").Process;
 const HeapObject = @import("../memory/value.zig").HeapObject;
 const Value = @import("../memory/value.zig").Value;
 const Receiver = @import("interface.zig").Receiver;
+const Port = @import("port.zig").Port;
 const DoublyLinkedList = std.DoublyLinkedList;
 const ActorId = @import("actor.zig").ActorId;
 const System = @import("system.zig").System;
@@ -15,6 +16,10 @@ pub const Scheduler = struct {
 
     allocator: std.mem.Allocator,
     system: *System,
+    io: std.Io,
+
+    ports: std.ArrayList(*Port),
+    port_group: std.Io.Group,
 
     // Generator state
     id: u8,
@@ -22,13 +27,16 @@ pub const Scheduler = struct {
 
     const REDUCTION_LIMIT = 2000;
 
-    pub fn init(allocator: std.mem.Allocator, id: u8, system: *System) Scheduler {
+    pub fn init(allocator: std.mem.Allocator, id: u8, system: *System, io: std.Io) Scheduler {
         return .{
             .registry = .init(allocator),
             .run_queue = .{},
             .waiting_queue = .{},
             .allocator = allocator,
             .system = system,
+            .io = io,
+            .ports = .empty,
+            .port_group = std.Io.Group.init,
             .id = id,
             .local_counter = 0,
         };
@@ -44,6 +52,13 @@ pub const Scheduler = struct {
             proc.deinit();
         }
         self.registry.deinit();
+
+        for (self.ports.items) |p| p.queue.close(self.io);
+        self.port_group.await(self.io) catch |err| {
+            std.debug.print("port cleanup await error: {any}\n", .{err});
+        };
+        for (self.ports.items) |p| p.deinit();
+        self.ports.deinit(self.allocator);
     }
 
     pub fn spawn(self: *Scheduler, main_closure: *HeapObject, args: []const Value) !ActorId {
@@ -54,6 +69,21 @@ pub const Scheduler = struct {
         self.run_queue.append(&proc.node);
 
         return pid;
+    }
+
+    pub fn spawnPort(
+        self: *Scheduler,
+        context: ?*anyopaque,
+        handler: *const fn (ctx: ?*anyopaque, msg: Value, sched: ?*anyopaque) callconv(.c) void,
+        cleanup: ?*const fn (ctx: ?*anyopaque) callconv(.c) void,
+    ) !ActorId {
+        const port = try Port.init(self.allocator, self.io, self, context, handler, cleanup);
+        try self.ports.append(self.allocator, port);
+        try self.port_group.concurrent(self.io, Port.run, .{port});
+
+        const id = self.nextId();
+        try self.registry.put(id, port.asReceiver());
+        return id;
     }
 
     pub fn spawnReceiver(self: *Scheduler, receiver: Receiver) !ActorId {
@@ -68,18 +98,7 @@ pub const Scheduler = struct {
             return;
         }
         if (self.registry.get(target)) |receiver| {
-            const wake = receiver.send(msg);
-
-            if (wake) {
-                // might crash
-                const proc = @as(*Process, @ptrCast(@alignCast(receiver.ptr)));
-
-                self.waiting_queue.remove(&proc.node);
-
-                self.run_queue.append(&proc.node);
-
-                std.debug.print("Scheduler: Immediate Wakeup -> PID {f}\n", .{proc.pid});
-            }
+            receiver.send(msg, self);
         } else {
             std.debug.print("DROP: ID {f} not found", .{target});
         }
@@ -126,6 +145,12 @@ pub const Scheduler = struct {
 
     pub fn resolve(self: *Scheduler, name: []const u8) ?ActorId {
         return self.system.resolve(name);
+    }
+
+    pub fn wake(self: *Scheduler, proc: *Process) void {
+        self.waiting_queue.remove(&proc.node);
+        self.run_queue.append(&proc.node);
+        std.debug.print("Scheduler: Immediate Wakeup -> PID {f}\n", .{proc.pid});
     }
 
     fn nextId(self: *Scheduler) ActorId {

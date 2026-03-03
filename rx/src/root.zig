@@ -19,3 +19,5 @@ pub const vm = struct {
     pub const Port = @import("vm/port.zig").Port;
     pub const ActorId = @import("vm/actor.zig").ActorId;
 };
+
+pub const api = @import("api.zig");

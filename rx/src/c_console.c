@@ -20,21 +20,11 @@ typedef enum {
     TAG_POINTER = 0,
     TAG_INTEGER = 1,
     TAG_NIL = 2,
-    TAG_BOOLEAN = 3
-} Tag;
+#include "rx_api.h"
 
-// fn (ctx: ?*anyopaque, msg: Value) void
-typedef void (*Handler)(void* ctx, Value msg);
-
-// context: ?*anyopaque
-// handler: *const fn ...
-typedef struct {
-    void* context;
-    Handler handler;
-} Port;
-
-void console_handler(void* ctx, Value msg) {
+void console_handler(void* ctx, rx_value_t msg, rx_scheduler_t* sched) {
     (void)ctx; // Unused
+    (void)sched;
     
     uint8_t tag = msg.bits & TAG_MASK;
     uint64_t payload = msg.bits >> TAG_BITS;
@@ -62,11 +52,8 @@ void console_handler(void* ctx, Value msg) {
     }
 }
 
-// Exported function to create the port
+// Exported function to initialize the console port
 __attribute__((visibility("default")))
-void create_console_port(Port* p) {
-    if (p) {
-        p->context = NULL;
-        p->handler = console_handler;
-    }
+uint32_t init_console(rx_scheduler_t* sched) {
+    return rx_spawn_port(sched, NULL, console_handler, NULL);
 }

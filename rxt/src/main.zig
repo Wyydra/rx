@@ -4,13 +4,11 @@ const Lexer = @import("lexer.zig").Lexer;
 const ast = @import("ast.zig");
 const compiler = @import("compiler.zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
-    const gpa_alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa_alloc = init.gpa;
+    const arena_alloc = init.arena.allocator();
 
-    const args = try std.process.argsAlloc(gpa_alloc);
-    defer std.process.argsFree(gpa_alloc, args);
+    const args = try init.minimal.args.toSlice(arena_alloc);
 
     if (args.len < 2) {
         std.debug.print("Usage: {s} <filename.rxt>\n", .{args[0]});
@@ -19,19 +17,17 @@ pub fn main() !void {
 
     const path = args[1];
 
-    var arena = std.heap.ArenaAllocator.init(gpa_alloc);
-    defer arena.deinit();
-    const arena_alloc = arena.allocator();
+    const io = init.io;
 
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
 
-    const fileStat = try file.stat();
+    const fileStat = try file.stat(io);
     const fileSize = fileStat.size;
 
     const content: []u8 = try arena_alloc.alloc(u8, @as(usize, @intCast(fileSize)) + 1);
     content[@as(usize, @intCast(fileSize))] = 0;
-    _ = try file.readAll(content);
+    _ = try file.readPositionalAll(io, content[0..@as(usize, @intCast(fileSize))], 0);
 
     const source = content[0..@as(usize, @intCast(fileSize)) :0];
 
@@ -56,7 +52,7 @@ pub fn main() !void {
     // try rx.memory.Closure.dump(fib, &writer);
 
     var system = rx.vm.System.init(gpa_alloc);
-    var scheduler = rx.vm.Scheduler.init(gpa_alloc, 0, &system);
+    var scheduler = rx.vm.Scheduler.init(gpa_alloc, 0, &system, io);
     defer scheduler.deinit();
 
     _ = try scheduler.spawn(closure, &.{});

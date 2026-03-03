@@ -64,7 +64,7 @@ pub const Actor = union(enum) {
             .process => |proc| {
                 proc.deinit(allocator); // Defined in process.zig
             },
-            .port => |_| {
+            .port => {
                 // TODO: .cleanup() fn ptr to port struct
             },
         }

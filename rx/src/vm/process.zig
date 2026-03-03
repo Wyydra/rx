@@ -8,6 +8,7 @@ const Receiver = @import("interface.zig").Receiver;
 const ActorId = @import("actor.zig").ActorId;
 const Heap = @import("../memory/heap.zig").Heap;
 const StringMeta = @import("../memory/string.zig").StringMeta;
+const Scheduler = @import("scheduler.zig").Scheduler;
 
 pub const CallFrame = struct {
     base: usize,
@@ -209,15 +210,14 @@ pub const Process = struct {
         return self.heap.allocUnsafe(kind, payload_size);
     }
 
-    fn receiveImpl(ptr: *anyopaque, msg: Value) bool {
+    fn receiveImpl(ptr: *anyopaque, msg: Value, sched_ptr: *anyopaque) void {
         const self = @as(*Process, @ptrCast(@alignCast(ptr)));
+        const sched = @as(*Scheduler, @ptrCast(@alignCast(sched_ptr)));
         self.push(msg) catch unreachable;
         if (self.status == .waiting) {
             self.status = .running;
-            return true;
+            sched.wake(self);
         }
-
-        return false;
     }
 
     pub fn asReceiver(self: *Process) Receiver {

@@ -6,11 +6,9 @@ pub const std_options = std.Options{
     .log_level = .debug,
 };
 
-pub fn main() !void {
-    var stdout = std.fs.File.stdout().writer(&.{}).interface;
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     var heap = try rx.memory.Heap.init(allocator, 1024 * 1024);
     defer heap.deinit();
@@ -18,7 +16,7 @@ pub fn main() !void {
     var system = rx.vm.System.init(allocator);
     defer system.deinit();
 
-    var scheduler = rx.vm.Scheduler.init(allocator, 0, &system);
+    var scheduler = rx.vm.Scheduler.init(allocator, 0, &system, io);
     defer scheduler.deinit();
 
     var asm_callee = rx.bytecode.Assembler.init(allocator, &heap);
@@ -27,7 +25,11 @@ pub fn main() !void {
     try asm_callee.print(0);
     try asm_callee.ret(0);
 
-    try asm_callee.dump(&stdout);
+    var stderr_buf: [4096]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
+    const stderr = &stderr_writer.interface;
+
+    try asm_callee.dump(stderr);
 
     const closure_callee = try asm_callee.compileToClosure();
 
@@ -40,7 +42,7 @@ pub fn main() !void {
     try asm_caller.print(0);
     try asm_caller.ret(0);
 
-    try asm_caller.dump(&stdout);
+    try asm_caller.dump(stderr);
 
     const closure_caller = try asm_caller.compileToClosure();
     _ = try scheduler.spawn(closure_caller, &.{});
