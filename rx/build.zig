@@ -20,7 +20,6 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    exe.linkLibC();
 
     b.installArtifact(exe);
 
