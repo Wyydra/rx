@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.root_module.link_libc = true;
+    exe.rdynamic = true;
 
     b.installArtifact(exe);
 

@@ -4,22 +4,49 @@ const Lexer = @import("lexer.zig").Lexer;
 const ast = @import("ast.zig");
 const compiler = @import("compiler.zig");
 
+comptime {
+    _ = rx.api;
+}
+
 pub fn main(init: std.process.Init) !void {
     const gpa_alloc = init.gpa;
     const arena_alloc = init.arena.allocator();
 
     const args = try init.minimal.args.toSlice(arena_alloc);
 
-    if (args.len < 2) {
-        std.debug.print("Usage: {s} <filename.rxt>\n", .{args[0]});
+    var path: ?[]const u8 = null;
+    var plugins = std.ArrayList([]const u8).init(gpa_alloc);
+    defer plugins.deinit();
+
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--plugin")) {
+            i += 1;
+            if (i < args.len) {
+                try plugins.append(args[i]);
+            } else {
+                std.debug.print("Error: --plugin requires a path argument.\n", .{});
+                return;
+            }
+        } else if (path == null) {
+            path = arg;
+        } else {
+            std.debug.print("Error: Unexpected argument '{s}'\n", .{arg});
+            return;
+        }
+    }
+
+    if (path == null) {
+        std.debug.print("Usage: {s} [--plugin <path.so>] <filename.rxt>\n", .{args[0]});
         return;
     }
 
-    const path = args[1];
+    const script_path = path.?;
 
     const io = init.io;
 
-    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    const file = try std.Io.Dir.cwd().openFile(io, script_path, .{});
     defer file.close(io);
 
     const fileStat = try file.stat(io);
@@ -54,6 +81,13 @@ pub fn main(init: std.process.Init) !void {
     var system = rx.vm.System.init(gpa_alloc);
     var scheduler = rx.vm.Scheduler.init(gpa_alloc, 0, &system, io);
     defer scheduler.deinit();
+
+    for (plugins.items) |plugin_path| {
+        scheduler.loadPlugin(plugin_path) catch |err| {
+            std.debug.print("Failed to load plugin '{s}': {any}\n", .{ plugin_path, err });
+            return err;
+        };
+    }
 
     _ = try scheduler.spawn(closure, &.{});
 

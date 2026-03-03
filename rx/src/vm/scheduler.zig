@@ -18,7 +18,8 @@ pub const Scheduler = struct {
     system: *System,
     io: std.Io,
 
-    ports: std.ArrayList(*Port),
+    ports: std.ArrayListUnmanaged(*Port),
+    plugins: std.ArrayListUnmanaged(std.DynLib),
     port_group: std.Io.Group,
 
     // Generator state
@@ -36,6 +37,7 @@ pub const Scheduler = struct {
             .system = system,
             .io = io,
             .ports = .empty,
+            .plugins = .empty,
             .port_group = std.Io.Group.init,
             .id = id,
             .local_counter = 0,
@@ -57,8 +59,15 @@ pub const Scheduler = struct {
         self.port_group.await(self.io) catch |err| {
             std.debug.print("port cleanup await error: {any}\n", .{err});
         };
-        for (self.ports.items) |p| p.deinit();
+        for (self.ports.items) |p| {
+            p.deinit();
+        }
         self.ports.deinit(self.allocator);
+
+        for (self.plugins.items) |*lib| {
+            lib.close();
+        }
+        self.plugins.deinit(self.allocator);
     }
 
     pub fn spawn(self: *Scheduler, main_closure: *HeapObject, args: []const Value) !ActorId {
@@ -73,17 +82,31 @@ pub const Scheduler = struct {
 
     pub fn spawnPort(
         self: *Scheduler,
-        context: ?*anyopaque,
-        handler: *const fn (ctx: ?*anyopaque, msg: Value, sched: ?*anyopaque) callconv(.c) void,
-        cleanup: ?*const fn (ctx: ?*anyopaque) callconv(.c) void,
+        ctx: ?*anyopaque,
+        handler: *const fn (?*anyopaque, Value, ?*anyopaque) callconv(.c) void,
+        cleanup: ?*const fn (?*anyopaque) callconv(.c) void,
     ) !ActorId {
-        const port = try Port.init(self.allocator, self.io, self, context, handler, cleanup);
+        const port = try Port.init(self.allocator, self.io, self, ctx, handler, cleanup);
         try self.ports.append(self.allocator, port);
+
         try self.port_group.concurrent(self.io, Port.run, .{port});
 
         const id = self.nextId();
         try self.registry.put(id, port.asReceiver());
         return id;
+    }
+
+    pub fn loadPlugin(self: *Scheduler, path: []const u8) !void {
+        var lib = try std.DynLib.open(path);
+        errdefer lib.close();
+
+        const init_fn = lib.lookup(*const fn (?*anyopaque) callconv(.c) void, "rx_plugin_init") orelse return error.SymbolNotFound;
+
+        // Register the loaded library to be closed on shutdown
+        try self.plugins.append(self.allocator, lib);
+
+        // Execute the plugin init function, passing the scheduler
+        init_fn(self);
     }
 
     pub fn spawnReceiver(self: *Scheduler, receiver: Receiver) !ActorId {

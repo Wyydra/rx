@@ -37,17 +37,15 @@ export fn rx_make_int(val: i64) Value {
 }
 
 export fn rx_string_data(val: Value) ?[*:0]const u8 {
-    if (!val.isObject(.string)) return null;
-    const obj = val.asObject();
-    const ptr = String.getChars(obj);
-    // string.zig ensures strings are null terminated.
-    return @ptrCast(ptr.ptr);
+    if (!val.isString()) return null;
+    const s = val.asString() catch return null;
+    return @ptrCast(s.ptr);
 }
 
 export fn rx_string_len(val: Value) usize {
-    if (!val.isObject(.string)) return 0;
-    const obj = val.asObject();
-    return String.getMeta(obj).len;
+    if (!val.isString()) return 0;
+    const s = val.asString() catch return 0;
+    return s.len;
 }
 
 export fn rx_is_nil(val: Value) bool {
@@ -63,15 +61,15 @@ export fn rx_is_pointer(val: Value) bool {
     return val.isPointer();
 }
 export fn rx_is_string(val: Value) bool {
-    return val.isObject(.string);
+    return val.isString();
 }
 
 export fn rx_get_bool(val: Value) bool {
     if (!val.isBoolean()) return false;
-    return val.asBoolean();
+    return val.asBoolean() catch false;
 }
 
 export fn rx_get_int(val: Value) i64 {
     if (!val.isInteger()) return 0;
-    return val.asInteger();
+    return val.asInteger() catch 0;
 }
