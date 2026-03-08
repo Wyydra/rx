@@ -135,7 +135,7 @@ const Compiler = struct {
         switch (expr) {
             .call => |c| {
                 if (self.functions.get(c.target)) |func_obj| {
-                    try a.loadConstant(dest_reg, rx.memory.Value.pointer(func_obj));
+                    try a.closure(dest_reg, func_obj);
                 } else {
                     log.err("Unknown function {s}", .{c.target});
                     return error.UnknownFunction;
@@ -233,7 +233,7 @@ const Compiler = struct {
                             if (src_reg != dest_reg) try a.move(src_reg, dest_reg);
                             // Then, try function map (e.g. `$worker` as a closure reference)
                         } else if (self.functions.get(name)) |func_obj| {
-                            try a.loadConstant(dest_reg, rx.memory.Value.pointer(func_obj));
+                            try a.closure(dest_reg, func_obj);
                         } else {
                             log.err("Unknown variable or function: {s}", .{name});
                             return error.UnknownVariable;
@@ -249,7 +249,7 @@ const Compiler = struct {
             .integer => |i| try a.loadConstant(dest_reg, rx.memory.Value.integer(i)),
             .string => |s| {
                 if (self.functions.get(s)) |func_obj| {
-                    try a.loadConstant(dest_reg, rx.memory.Value.pointer(func_obj));
+                    try a.closure(dest_reg, func_obj);
                 } else {
                     try a.loadString(dest_reg, s);
                 }

@@ -3,8 +3,7 @@ const std = @import("std");
 pub const Opcode = enum(u8) {
     MOVE, // R(A) = R(B)
     LOADK, // R(A) = K(Bx)
-    // LOADNIL,    // R(A) = nil
-    // LOADBOOL,   // R(A) = bool(B)
+    CLOSURE, // R(A) = Closure(K(Bx))
 
     SEND, // SEND R(A) MSG: R(B)
     RECV, // R(A) = RECV()
@@ -27,7 +26,7 @@ pub const Opcode = enum(u8) {
 
     pub inline fn reductionCost(self: Opcode) usize {
         return switch (self) {
-            .MOVE, .LOADK => 1,
+            .MOVE, .LOADK, .CLOSURE => 1,
             .ADD, .SUB, .LT, .GT => 1,
             .JF => 2,
             .CALL => 4,
@@ -80,7 +79,7 @@ pub const Instruction = packed struct {
         try writer.print("{s} ", .{@tagName(op)});
 
         switch (op) {
-            .LOADK => {
+            .LOADK, .CLOSURE => {
                 try writer.print("R{d} K{d}", .{ self.A, self.getBx() });
             },
             .RET, .RECV, .PRINT => {

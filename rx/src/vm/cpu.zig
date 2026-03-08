@@ -188,15 +188,8 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 // R(A) = PID of new process (as integer)
                 const closure_idx = base + instr.B;
                 const closure_val = stack[closure_idx];
-                var func_obj: *HeapObject = undefined;
-                if (closure_val.isClosure()) {
-                    const closure_obj = closure_val.asClosure() catch unreachable;
-                    func_obj = Closure.getFunction(closure_obj);
-                } else if (closure_val.isFunction()) {
-                    func_obj = closure_val.asFunction() catch unreachable;
-                } else {
-                    return ExecutionResult.err(.invalid_instruction);
-                }
+                const closure_obj = closure_val.asClosure() catch return ExecutionResult.err(.invalid_instruction);
+                const func_obj = Closure.getFunction(closure_obj);
 
                 const args_count = instr.C;
                 const args = stack[closure_idx + 1 .. closure_idx + 1 + args_count];
@@ -208,6 +201,14 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 // R[A] = Constants[Bx]
                 const val = constants[instr.getBx()];
                 stack[base + instr.A] = val;
+            },
+            .CLOSURE => {
+                const func_val = constants[instr.getBx()];
+                const func_obj = func_val.asFunction() catch return ExecutionResult.err(.invalid_instruction);
+                const closure_obj = proc.alloc(.closure, @sizeOf(u64)) catch return ExecutionResult.err(.out_of_memory);
+                const func_slot = @as(**HeapObject, @ptrCast(@alignCast(@as([*]u8, @ptrCast(closure_obj)) + @sizeOf(HeapObject))));
+                func_slot.* = func_obj;
+                stack[base + instr.A] = Value.pointer(closure_obj);
             },
             .ADD => {
                 // R[A] = R[B] + R[C]
@@ -297,17 +298,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const closure_idx = base + instr.A;
                 const closure_val = stack[closure_idx];
 
-                var closure_obj: *HeapObject = undefined;
-                if (closure_val.isClosure()) {
-                    closure_obj = closure_val.asClosure() catch unreachable;
-                } else if (closure_val.isFunction()) {
-                    const func_obj = closure_val.asFunction() catch unreachable;
-                    closure_obj = proc.alloc(.closure, @sizeOf(u64)) catch return ExecutionResult.err(.out_of_memory);
-                    const func_slot = @as(**HeapObject, @ptrCast(@alignCast(@as([*]u8, @ptrCast(closure_obj)) + @sizeOf(HeapObject))));
-                    func_slot.* = func_obj;
-                } else {
-                    return ExecutionResult.err(.invalid_instruction);
-                }
+                const closure_obj = closure_val.asClosure() catch return ExecutionResult.err(.invalid_instruction);
 
                 const new_base = closure_idx + 1;
 

@@ -45,6 +45,15 @@ pub const Assembler = struct {
         try self.emit(.LOADK, reg, @intCast(len), 0);
     }
 
+    pub fn closure(self: *Assembler, dest_reg: u8, func_obj: *HeapObject) !void {
+        const len = self.constants.items.len;
+        try self.constants.append(self.allocator, Value.pointer(func_obj));
+
+        if (len > std.math.maxInt(u32)) return error.TooManyConstants;
+
+        try self.emit(.CLOSURE, dest_reg, @intCast(len), 0);
+    }
+
     pub fn loadString(self: *Assembler, reg: u8, str: []const u8) !void {
         const String = @import("../memory/string.zig");
         const obj = try String.alloc(self.allocator, str);
