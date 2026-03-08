@@ -61,6 +61,19 @@ pub const HeapObject = packed struct {
         const addr = payload_ptr.*;
         return @ptrFromInt(addr);
     }
+    pub fn allocate(allocator: std.mem.Allocator, kind: Kind, payload_size: usize) !*HeapObject {
+        const total_size = @sizeOf(HeapObject) + payload_size;
+        const slice = try allocator.alignedAlloc(u8, .@"8", total_size);
+
+        const obj: *HeapObject = @ptrCast(slice.ptr);
+        obj.* = HeapObject{
+            .kind = kind,
+            .flags = 0,
+            .size = @intCast(payload_size),
+        };
+
+        return obj;
+    }
 };
 
 pub const Value = packed struct {
@@ -137,6 +150,12 @@ pub const Value = packed struct {
         return obj.kind == .closure;
     }
 
+    pub fn isFunction(self: Value) bool {
+        if (!self.isPointer()) return false;
+        const ptr = self.asPointer() catch return false;
+        return ptr.kind == .function;
+    }
+
     pub fn isString(self: Value) bool {
         if (!self.isPointer()) return false;
         const obj = self.asPointer() catch return false;
@@ -165,6 +184,11 @@ pub const Value = packed struct {
 
     pub fn asClosure(self: Value) !*HeapObject {
         if (!self.isClosure()) return error.TypeError;
+        return self.asPointer();
+    }
+
+    pub fn asFunction(self: Value) !*HeapObject {
+        if (!self.isFunction()) return error.TypeError;
         return self.asPointer();
     }
 

@@ -5,7 +5,11 @@ const Function = @import("../memory/function.zig");
 const Tuple = @import("../memory/tuple.zig");
 const Instruction = @import("../bytecode/opcode.zig").Instruction;
 const Value = @import("../memory/value.zig").Value;
+const HeapObject = @import("../memory/value.zig").HeapObject;
+const Object = @import("../memory/value.zig").Object;
 const ActorId = @import("actor.zig").ActorId;
+
+const log = std.log.scoped(.cpu);
 
 // TODO: old struct remake it
 pub const ExecutionResult = packed struct {
@@ -129,21 +133,19 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
         const instr = Instruction.decode(raw_instr);
         ip += 4;
 
-        // std.debug.print("Frame: ", .{});
-        // // Print up to 8 registers of the current frame
-        // const limit_reg = @min(stack.len, base + 8);
+        // log.debug("IP: {d} | Base: {d} | ", .{ ip, base });
+        // var limit_reg: usize = base + 8; // default window size, you can adjust
+        // if (limit_reg > stack.len) limit_reg = stack.len;
         // for (stack[base..limit_reg], 0..) |v, i| {
-        //     if (v.isNil()) {
-        //         std.debug.print("R{d}=_, ", .{i});
-        //     } else {
-        //         std.debug.print("R{d}={f}, ", .{ i, v });
+        //     if (!v.isNil()) {
+        //         log.debug("R{d}={f}, ", .{ i, v });
         //     }
         // }
         // if (limit_reg < stack.len) {
-        //     std.debug.print("...", .{});
+        //     log.debug("...", .{});
         // }
-        // std.debug.print("\n{f} ", .{instr});
-        // std.debug.print("\n ", .{});
+        // log.debug("\n{f} ", .{instr});
+        // log.debug("\n ", .{});
 
         switch (instr.getOpcode()) {
             .MOVE => {
@@ -186,13 +188,20 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 // R(A) = PID of new process (as integer)
                 const closure_idx = base + instr.B;
                 const closure_val = stack[closure_idx];
-                if (!closure_val.isClosure()) return ExecutionResult.err(.invalid_instruction);
-                const closure_obj = closure_val.asClosure() catch unreachable;
+                var func_obj: *HeapObject = undefined;
+                if (closure_val.isClosure()) {
+                    const closure_obj = closure_val.asClosure() catch unreachable;
+                    func_obj = Closure.getFunction(closure_obj);
+                } else if (closure_val.isFunction()) {
+                    func_obj = closure_val.asFunction() catch unreachable;
+                } else {
+                    return ExecutionResult.err(.invalid_instruction);
+                }
 
                 const args_count = instr.C;
                 const args = stack[closure_idx + 1 .. closure_idx + 1 + args_count];
 
-                const new_pid = scheduler.spawn(closure_obj, args) catch return ExecutionResult.err(.out_of_memory);
+                const new_pid = scheduler.spawn(func_obj, args) catch return ExecutionResult.err(.out_of_memory);
                 stack[base + instr.A] = Value.integer(@intCast(new_pid.toInt()));
             },
             .LOADK => {
@@ -288,8 +297,17 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const closure_idx = base + instr.A;
                 const closure_val = stack[closure_idx];
 
-                if (!closure_val.isClosure()) return ExecutionResult.err(.invalid_instruction);
-                const closure_obj = closure_val.asClosure() catch unreachable;
+                var closure_obj: *HeapObject = undefined;
+                if (closure_val.isClosure()) {
+                    closure_obj = closure_val.asClosure() catch unreachable;
+                } else if (closure_val.isFunction()) {
+                    const func_obj = closure_val.asFunction() catch unreachable;
+                    closure_obj = proc.alloc(.closure, @sizeOf(u64)) catch return ExecutionResult.err(.out_of_memory);
+                    const func_slot = @as(**HeapObject, @ptrCast(@alignCast(@as([*]u8, @ptrCast(closure_obj)) + @sizeOf(HeapObject))));
+                    func_slot.* = func_obj;
+                } else {
+                    return ExecutionResult.err(.invalid_instruction);
+                }
 
                 const new_base = closure_idx + 1;
 

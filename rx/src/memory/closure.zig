@@ -11,13 +11,13 @@ const Instruction = @import("../bytecode/opcode.zig").Instruction;
 // 2. [Function Pointer]  (8 bytes) points to the ObjFunction
 // 3. [Upvalues...]       (N * 8 bytes) captured variables
 
-pub fn alloc(heap: *Heap, function: *HeapObject, env_count: u32) HeapError!*HeapObject {
+pub fn alloc(allocator: std.mem.Allocator, function: *HeapObject, env_count: u32) !*HeapObject {
     // strict check: ensure we are actually wrapping a Function object
     std.debug.assert(function.kind == .function);
 
     const payload_size = @sizeOf(u64) + (env_count * @sizeOf(Value));
 
-    const obj = try heap.allocUnsafe(.closure, payload_size);
+    const obj = try HeapObject.allocate(allocator, .closure, payload_size);
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
     const func_slot = @as(**HeapObject, @ptrCast(@alignCast(payload_ptr)));

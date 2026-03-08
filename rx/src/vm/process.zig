@@ -40,7 +40,8 @@ pub const Process = struct {
     const INITIAL_STACK_SIZE: usize = 16;
     const INITIAL_FRAME_CAPACITY: usize = 8;
 
-    pub fn init(allocator: std.mem.Allocator, pid: ActorId, main_closure: *HeapObject, args: []const Value) !*Process {
+    pub fn init(allocator: std.mem.Allocator, pid: ActorId, main_func: *HeapObject, args: []const Value) !*Process {
+        std.debug.assert(main_func.kind == .function);
         const self = try allocator.create(Process);
 
         self.node = .{ .prev = null, .next = null };
@@ -60,6 +61,8 @@ pub const Process = struct {
         const max_initial_stack = @max(INITIAL_STACK_SIZE, args.len + 1); // +1 because closure is index 0
         try self.stack.ensureTotalCapacity(allocator, max_initial_stack);
         try self.frames.ensureTotalCapacity(allocator, INITIAL_FRAME_CAPACITY);
+
+        const main_closure = try Closure.alloc(self.heap.allocator(), main_func, 0);
 
         self.stack.appendAssumeCapacity(Value.pointer(main_closure));
         for (args) |arg_val| {
@@ -169,7 +172,7 @@ pub const Process = struct {
             heap.scanned_offset += std.mem.alignForward(usize, totalSize, 8);
         }
 
-        var newStrings = std.StringHashMap(*HeapObject).init(heap.allocator);
+        var newStrings = std.StringHashMap(*HeapObject).init(heap.backing_allocator);
 
         var it = heap.strings.iterator();
         while (it.next()) |entry| {

@@ -13,15 +13,11 @@ pub const StringMeta = packed struct {
 // 3. [Bytes...] (N bytes)
 // 4. [Null Terminator] (1 byte, optional but good for C-Interop)
 
-pub fn alloc(heap: *Heap, chars: []const u8) !*HeapObject {
-    if (heap.strings.get(chars)) |obj| {
-        return obj;
-    }
-
+pub fn alloc(allocator: std.mem.Allocator, chars: []const u8) !*HeapObject {
     const meta_size = @sizeOf(StringMeta);
     const total_size = meta_size + chars.len + 1;
 
-    const obj = try heap.allocUnsafe(.string, @intCast(total_size));
+    const obj = try HeapObject.allocate(allocator, .string, total_size);
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
     const meta_ptr = @as(*StringMeta, @ptrCast(@alignCast(payload_ptr)));
@@ -41,9 +37,6 @@ pub fn alloc(heap: *Heap, chars: []const u8) !*HeapObject {
 
     @memcpy(chars_ptr[0..chars.len], chars);
     chars_ptr[chars.len] = 0; // Null terminate
-
-    const key_in_heap = chars_ptr[0..chars.len];
-    try heap.strings.put(key_in_heap, obj);
 
     return obj;
 }

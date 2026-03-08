@@ -32,16 +32,12 @@ pub fn main(init: std.process.Init) !void {
 
     var module = try ast.parse(arena_alloc, source);
 
-    var heap = try rx.memory.Heap.init(gpa_alloc, 1024 * 1024);
-    defer heap.deinit();
+    const function = try compiler.compile(arena_alloc, &module);
 
-    const closure = try compiler.compile(arena_alloc, &heap, &module);
+    var vm = try rx.init(gpa_alloc);
+    defer vm.deinit();
 
-    var system = rx.vm.System.init(gpa_alloc);
-    var scheduler = rx.vm.Scheduler.init(gpa_alloc, 0, &system);
-    defer scheduler.deinit();
+    _ = try vm.spawn(function, &.{});
 
-    _ = try scheduler.spawn(closure, &.{});
-
-    try scheduler.execute();
+    try vm.execute();
 }

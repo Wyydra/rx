@@ -8,7 +8,7 @@ pub const HeapError = error{
 };
 
 pub const Heap = struct {
-    allocator: std.mem.Allocator,
+    backing_allocator: std.mem.Allocator,
 
     from_space: []u8,
     to_space: []u8,
@@ -23,15 +23,15 @@ pub const Heap = struct {
 
     pub const DEFAULT_SIZE: usize = 1024 * 1024; // 1MB
 
-    pub fn init(allocator: std.mem.Allocator, size: usize) !Heap {
-        const from_buffer = try allocator.alignedAlloc(u8, .@"8", size);
-        const to_buffer = try allocator.alignedAlloc(u8, .@"8", size);
+    pub fn init(init_allocator: std.mem.Allocator, size: usize) !Heap {
+        const from_buffer = try init_allocator.alignedAlloc(u8, .@"8", size);
+        const to_buffer = try init_allocator.alignedAlloc(u8, .@"8", size);
 
-        var strings = std.StringHashMap(*HeapObject).init(allocator);
+        var strings = std.StringHashMap(*HeapObject).init(init_allocator);
         errdefer strings.deinit();
 
         return Heap{
-            .allocator = allocator,
+            .backing_allocator = init_allocator,
             .from_space = from_buffer,
             .to_space = to_buffer,
             .offset = 0,
@@ -44,8 +44,8 @@ pub const Heap = struct {
 
     pub fn deinit(self: *Heap) void {
         self.strings.deinit();
-        self.allocator.free(self.from_space);
-        self.allocator.free(self.to_space);
+        self.backing_allocator.free(self.from_space);
+        self.backing_allocator.free(self.to_space);
     }
 
     pub fn reset(self: *Heap) void {
@@ -75,7 +75,85 @@ pub const Heap = struct {
         return obj;
     }
 
+    pub fn allocator(self: *Heap) std.mem.Allocator {
+        return std.mem.Allocator{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = allocFn,
+                .resize = resizeFn,
+                .remap = remapFn,
+                .free = freeFn,
+            },
+        };
+    }
+
+    fn allocFn(ctx: *anyopaque, len: usize, ptr_align: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        _ = ret_addr;
+        const self: *Heap = @ptrCast(@alignCast(ctx));
+
+        // Note: Our allocUnsafe implementation ensures 8-byte alignment for all HeapObjects,
+        // which matches the typical requirements for our structures.
+        // We'll just enforce that requested alignment isn't bigger than what we can provide trivially.
+        const align_val = ptr_align.toByteUnits();
+        if (align_val > 8) return null;
+
+        const aligned_size = std.mem.alignForward(usize, len, 8);
+
+        if (self.offset + aligned_size > self.capacity) {
+            return null;
+        }
+
+        const ptr_int = @intFromPtr(self.from_space.ptr) + self.offset;
+        self.offset += aligned_size;
+
+        return @ptrFromInt(ptr_int);
+    }
+
+    fn resizeFn(ctx: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        _ = ctx;
+        _ = buf;
+        _ = buf_align;
+        _ = new_len;
+        _ = ret_addr;
+        return false;
+    }
+
+    fn remapFn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        _ = ctx;
+        _ = memory;
+        _ = alignment;
+        _ = new_len;
+        _ = ret_addr;
+        return null;
+    }
+
+    fn freeFn(ctx: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, ret_addr: usize) void {
+        _ = ctx;
+        _ = buf;
+        _ = buf_align;
+        _ = ret_addr;
+    }
+
+    pub fn createString(self: *Heap, chars: []const u8) !*HeapObject {
+        const String = @import("string.zig");
+
+        if (self.strings.get(chars)) |obj| {
+            return obj;
+        }
+
+        const obj = try String.alloc(self.allocator(), chars);
+
+        const key_in_heap = String.getChars(obj);
+        try self.strings.put(key_in_heap, obj);
+
+        return obj;
+    }
+
     pub fn copyObject(self: *Heap, oldObj: *HeapObject) !*HeapObject {
+        if (oldObj.isFrozen()) {
+            return oldObj;
+        }
+
         if (oldObj.isMoved()) {
             return oldObj.getForwardingPointer();
         }
@@ -115,6 +193,10 @@ pub const Heap = struct {
     }
 
     fn deepCopyObject(self: *Heap, src: *HeapObject) HeapError!*HeapObject {
+        if (src.isFrozen()) {
+            return src;
+        }
+
         const Tuple = @import("tuple.zig");
         const String = @import("string.zig");
 
@@ -122,7 +204,7 @@ pub const Heap = struct {
             .string => {
                 // Re-intern the string in this heap (deduplicates automatically)
                 const chars = String.getChars(src);
-                return String.alloc(self, chars);
+                return self.createString(chars);
             },
             .tuple => {
                 const src_elems = Tuple.slice(src);

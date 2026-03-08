@@ -3,11 +3,18 @@ const Heap = @import("heap.zig");
 const HeapError = @import("heap.zig").HeapError;
 const HeapObject = @import("value.zig").HeapObject;
 const Value = @import("value.zig").Value;
+const Tuple = @import("tuple.zig");
 
-pub fn alloc(heap: *Heap, items: []const Value) HeapError!*HeapObject {
+pub fn alloc(allocator: std.mem.Allocator, items: []const Value) !*HeapObject {
     const payload_size = items.len * @sizeOf(Value);
-    const obj = try heap.allocUnsafe(.tuple, payload_size);
-    @memcpy(items.ptr, items);
+
+    const obj = try HeapObject.allocate(allocator, .tuple, payload_size);
+
+    const elements = Tuple.slice(obj);
+    if (items.len > 0) {
+        @memcpy(elements[0..items.len], items);
+    }
+
     return obj;
 }
 

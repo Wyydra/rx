@@ -18,4 +18,8 @@ pub const vm = struct {
     pub const System = @import("vm/system.zig").System;
     pub const Port = @import("vm/port.zig").Port;
     pub const ActorId = @import("vm/actor.zig").ActorId;
+    pub const VM = @import("vm/vm.zig").VM;
 };
+
+pub const VM = vm.VM;
+pub const init = VM.init;

@@ -10,14 +10,12 @@ const Closure = @import("../memory/closure.zig");
 pub const Assembler = struct {
     allocator: std.mem.Allocator,
     code: std.ArrayList(u8),
-    heap: *Heap,
     constants: std.ArrayList(Value),
     max_reg: u8 = 0,
 
-    pub fn init(allocator: std.mem.Allocator, heap: *Heap) Assembler {
+    pub fn init(allocator: std.mem.Allocator) Assembler {
         return .{
             .allocator = allocator,
-            .heap = heap,
             .code = .empty,
             .constants = .empty,
         };
@@ -49,7 +47,8 @@ pub const Assembler = struct {
 
     pub fn loadString(self: *Assembler, reg: u8, str: []const u8) !void {
         const String = @import("../memory/string.zig");
-        const obj = try String.alloc(self.heap, str);
+        const obj = try String.alloc(self.allocator, str);
+        obj.flags = HeapObject.FROZEN;
         try self.loadConstant(reg, Value.pointer(obj));
     }
 
@@ -120,12 +119,13 @@ pub const Assembler = struct {
         }
     }
 
-    pub fn compileToClosure(self: *Assembler) !*HeapObject {
-        const func_obj = try Function.alloc(self.heap, 0, // arity
+    pub fn compileToFunction(self: *Assembler) !*HeapObject {
+        const obj = try Function.alloc(self.allocator, 0, // arity
             0, // upvalues
             self.max_reg, // peak register count, tracked by emit()
             self.code.items, self.constants.items);
 
-        return try Closure.alloc(self.heap, func_obj, 0);
+        obj.flags = HeapObject.FROZEN;
+        return obj;
     }
 };
