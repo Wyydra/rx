@@ -7,11 +7,18 @@ const Receiver = @import("interface.zig").Receiver;
 const DoublyLinkedList = std.DoublyLinkedList;
 const ActorId = @import("actor.zig").ActorId;
 const System = @import("system.zig").System;
+const log = std.log.scoped(.scheduler);
+
+const Resource = struct {
+    ptr: *anyopaque,
+    destroyFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
+};
 
 pub const Scheduler = struct {
     registry: std.AutoHashMap(ActorId, Receiver),
     run_queue: DoublyLinkedList,
     waiting_queue: DoublyLinkedList,
+    resources: std.ArrayListUnmanaged(Resource),
 
     allocator: std.mem.Allocator,
     system: *System,
@@ -27,6 +34,7 @@ pub const Scheduler = struct {
             .registry = .init(allocator),
             .run_queue = .{},
             .waiting_queue = .{},
+            .resources = .empty,
             .allocator = allocator,
             .system = system,
             .id = id,
@@ -43,7 +51,17 @@ pub const Scheduler = struct {
             const proc: *Process = @fieldParentPtr("node", node);
             proc.deinit();
         }
+        for (self.resources.items) |r| r.destroyFn(r.ptr, self.allocator);
+        self.resources.deinit(self.allocator);
         self.registry.deinit();
+    }
+
+    pub fn trackResource(
+        self: *Scheduler,
+        ptr: *anyopaque,
+        destroyFn: *const fn (*anyopaque, std.mem.Allocator) void,
+    ) !void {
+        try self.resources.append(self.allocator, .{ .ptr = ptr, .destroyFn = destroyFn });
     }
 
     pub fn spawn(self: *Scheduler, main_func: *HeapObject, args: []const Value) !ActorId {
@@ -64,11 +82,11 @@ pub const Scheduler = struct {
 
     pub fn send(self: *Scheduler, target: ActorId, msg: Value) void {
         if (!target.isLocal(self.id)) {
-            std.debug.print("Routing to remote scheduler {d}...\n", .{target.scheduler_id});
+            log.debug("Routing to remote scheduler {d}...\n", .{target.scheduler_id});
             return;
         }
         if (self.registry.get(target)) |receiver| {
-            const wake = receiver.send(msg);
+            const wake = receiver.send(msg, self);
 
             if (wake) {
                 // might crash
@@ -78,10 +96,10 @@ pub const Scheduler = struct {
 
                 self.run_queue.append(&proc.node);
 
-                std.debug.print("Scheduler: Immediate Wakeup -> PID {f}\n", .{proc.pid});
+                log.debug("Scheduler: Immediate Wakeup -> PID {f}\n", .{proc.pid});
             }
         } else {
-            std.debug.print("DROP: ID {f} not found", .{target});
+            log.debug("DROP: ID {f} not found", .{target});
         }
     }
 

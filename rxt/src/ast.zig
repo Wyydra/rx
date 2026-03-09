@@ -46,6 +46,7 @@ pub const Expression = union(enum) {
         args: []RValue,
     },
     recv: void,
+    self: void,
     val: RValue,
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {

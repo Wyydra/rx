@@ -194,6 +194,9 @@ const Compiler = struct {
             .recv => {
                 try a.recv(dest_reg);
             },
+            .self => {
+                try a.emit(.SELF, dest_reg, 0, 0);
+            },
             .binary => |b| {
                 const lhs_reg = try self.compileRValue(a, ctx, b.lhs);
                 const rhs_reg = try self.compileRValue(a, ctx, b.rhs);

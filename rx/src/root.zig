@@ -23,3 +23,7 @@ pub const vm = struct {
 
 pub const VM = vm.VM;
 pub const init = VM.init;
+
+comptime {
+    _ = @import("api.zig");
+}

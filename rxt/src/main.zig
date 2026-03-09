@@ -12,11 +12,35 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(arena_alloc);
 
     if (args.len < 2) {
-        std.debug.print("Usage: {s} <filename.rxt>\n", .{args[0]});
+        std.debug.print("Usage: {s} [--plugin <path>] <filename.rxt>\n", .{args[0]});
         return;
     }
 
-    const path = args[1];
+    var script_path: ?[]const u8 = null;
+    var plugins: std.ArrayListUnmanaged([]const u8) = .empty;
+
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--plugin") or std.mem.eql(u8, arg, "-p")) {
+            i += 1;
+            if (i < args.len) {
+                try plugins.append(arena_alloc, args[i]);
+            } else {
+                std.debug.print("Error: missing plugin path after {s}\n", .{arg});
+                return;
+            }
+        } else {
+            script_path = arg;
+        }
+    }
+
+    if (script_path == null) {
+        std.debug.print("Error: No script file provided.\nUsage: {s} [--plugin <path>] <filename.rxt>\n", .{args[0]});
+        return;
+    }
+
+    const path = script_path.?;
 
     const file = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
@@ -36,6 +60,10 @@ pub fn main(init: std.process.Init) !void {
 
     var vm = try rx.init(gpa_alloc);
     defer vm.deinit();
+
+    for (plugins.items) |plugin_path| {
+        try vm.loadPlugin(plugin_path);
+    }
 
     _ = try vm.spawn(function, &.{});
 

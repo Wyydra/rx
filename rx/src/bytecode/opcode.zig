@@ -7,6 +7,7 @@ pub const Opcode = enum(u8) {
 
     SEND, // SEND R(A) MSG: R(B)
     RECV, // R(A) = RECV()
+    SELF, // R(A) = self PID (as integer)
     SPAWN, // R(A) = SPAWN(R(B), C) — spawn a new process from closure R(B) with C args, returns PID as integer
 
     ADD, // R(A) = R(B) + R(C)
@@ -33,6 +34,7 @@ pub const Opcode = enum(u8) {
             .RET => 3,
             .SEND => 8,
             .RECV => 2,
+            .SELF => 1,
             .SPAWN => 10,
             .PRINT => 6,
             .NEWTUPLE => 4,
@@ -82,7 +84,7 @@ pub const Instruction = packed struct {
             .LOADK, .CLOSURE => {
                 try writer.print("R{d} K{d}", .{ self.A, self.getBx() });
             },
-            .RET, .RECV, .PRINT => {
+            .RET, .RECV, .PRINT, .SELF => {
                 try writer.print("R{d}", .{self.A});
             },
             .SEND => {

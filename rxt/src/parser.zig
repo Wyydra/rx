@@ -102,6 +102,9 @@ pub const Parser = struct {
             .keyword_recv => .{
                 .expr = .{ .recv = {} },
             },
+            .keyword_self => .{
+                .expr = .{ .self = {} },
+            },
             .keyword_call => blk: {
                 const target = try self.parseIdentifier();
                 var args: std.ArrayList(ast.RValue) = .empty;
@@ -190,6 +193,7 @@ pub const Parser = struct {
                 break :bkl .{ .call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
             },
             .keyword_recv => .{ .recv = {} },
+            .keyword_self => .{ .self = {} },
             .keyword_spawn => blk: {
                 const target = try self.parseRValue();
                 var args: std.ArrayList(ast.RValue) = .empty;

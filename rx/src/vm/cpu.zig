@@ -158,16 +158,24 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
             },
             .SEND => {
                 // SEND R(A), R(B)
-                // R(A) = Target PID
+                // R(A) = Target PID (Integer) or Name (String)
                 // R(B) = Message Payload
                 const id_val = stack[base + instr.A];
                 const msg_val = stack[base + instr.B];
 
-                if (!id_val.isInteger()) return ExecutionResult.err(.invalid_instruction);
-
-                const raw_id = id_val.asInteger() catch unreachable;
-
-                const target = ActorId.fromInt(@intCast(raw_id));
+                const target = if (id_val.isInteger()) blk: {
+                    break :blk ActorId.fromInt(@intCast(id_val.asInteger() catch unreachable));
+                } else if (id_val.isString()) blk: {
+                    const name = id_val.asString() catch unreachable;
+                    if (scheduler.system.resolve(name)) |pid| {
+                        break :blk pid;
+                    } else {
+                        // TODO: Better error code or handle unknown process
+                        return ExecutionResult.err(.invalid_instruction);
+                    }
+                } else {
+                    return ExecutionResult.err(.invalid_instruction);
+                };
 
                 scheduler.send(target, msg_val);
             },
@@ -180,6 +188,10 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                     proc.saved_ip = ip;
                     return ExecutionResult.waiting(.message, 0);
                 }
+            },
+            .SELF => {
+                // R(A) = my own PID as integer
+                stack[base + instr.A] = Value.integer(@intCast(proc.pid.toInt()));
             },
             .SPAWN => {
                 // SPAWN R(A) R(B) C

@@ -21,6 +21,7 @@ pub const Token = struct {
         .{ "return", .keyword_return },
         .{ "send", .keyword_send },
         .{ "recv", .keyword_recv },
+        .{ "self", .keyword_self },
         .{ "spawn", .keyword_spawn },
 
         .{ "call", .keyword_call },
@@ -60,6 +61,7 @@ pub const Token = struct {
         keyword_send,
         keyword_recv,
         keyword_spawn,
+        keyword_self,
     };
 };
 

@@ -5,6 +5,7 @@ const Function = @import("../memory/function.zig");
 const Closure = @import("../memory/closure.zig");
 const Tuple = @import("../memory/tuple.zig");
 const Receiver = @import("interface.zig").Receiver;
+const Scheduler = @import("scheduler.zig").Scheduler;
 const ActorId = @import("actor.zig").ActorId;
 const Heap = @import("../memory/heap.zig").Heap;
 const StringMeta = @import("../memory/string.zig").StringMeta;
@@ -212,7 +213,8 @@ pub const Process = struct {
         return self.heap.allocUnsafe(kind, payload_size);
     }
 
-    fn receiveImpl(ptr: *anyopaque, msg: Value) bool {
+    fn receiveImpl(ptr: *anyopaque, msg: Value, sched: *Scheduler) bool {
+        _ = sched;
         const self = @as(*Process, @ptrCast(@alignCast(ptr)));
         self.push(msg) catch unreachable;
         if (self.status == .waiting) {

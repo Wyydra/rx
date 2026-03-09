@@ -13,12 +13,15 @@ pub const System = struct {
     }
 
     pub fn deinit(self: *System) void {
+        for (self.registry.keys()) |key| {
+            self.allocator.free(key);
+        }
         self.registry.deinit();
     }
 
     pub fn register(self: *System, name: []const u8, pid: ActorId) !void {
-        const key = self.allocator.dupe(u8, name);
-        self.registry.put(key, pid);
+        const key = try self.allocator.dupe(u8, name);
+        try self.registry.put(key, pid);
     }
     pub fn resolve(self: *System, name: []const u8) ?ActorId {
         return self.registry.get(name);
