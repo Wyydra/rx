@@ -1,10 +1,10 @@
 /**
- * rx_api.h — Rx VM plugin (port/NIF) public C API
+ * rx_api.h — Rx VM ports C API
  *
  * Include this header and compile as a shared library:
  *   cc -shared -fPIC -o libmyplugin.so plugin.c
  *
- * Your plugin must export:
+ * Your port must export:
  *   void rx_load(rx_scheduler_t* sched);
  *
  * Inside rx_load(), call rx_spawn_port() to create ports and
@@ -44,11 +44,20 @@ uint32_t rx_spawn_port(rx_scheduler_t* sched,
                        rx_handler_t    handler,
                        rx_deinit_t     deinit);
 
+/** Spawn an asynchronous port that runs on a background thread. Returns its ActorId (0 on failure). */
+uint32_t rx_spawn_port_async(rx_scheduler_t* sched,
+                             void*           ctx,
+                             rx_handler_t    handler,
+                             rx_deinit_t     deinit);
+
 /** Register an ActorId under a name so Rx scripts can SEND to it by name. */
 void rx_register_port(rx_scheduler_t* sched, const char* name, uint32_t actor_id);
 
 /** Send a message to any actor/port by ActorId. */
 void rx_port_send(rx_scheduler_t* sched, uint32_t target_id, rx_value_t msg);
+
+/** Send a message to any actor/port by ActorId safely from a background thread. */
+void rx_port_send_external(rx_scheduler_t* sched, uint32_t target_id, rx_value_t msg);
 
 /* --- Value constructors ------------------------------------------------- */
 
@@ -72,6 +81,11 @@ int64_t rx_get_int (rx_value_t v);
 /** String data pointer — valid ONLY during the handler call. */
 const char* rx_string_data(rx_value_t v);
 size_t      rx_string_len (rx_value_t v);
+
+/** Tuple inspection — returns element count, or 0 if not a tuple. */
+uint32_t   rx_tuple_len(rx_value_t v);
+/** Returns the element at `index`, or nil if out of range or not a tuple. */
+rx_value_t rx_tuple_get(rx_value_t v, uint32_t index);
 
 /* --- Plugin entry point ------------------------------------------------- */
 

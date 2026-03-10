@@ -180,7 +180,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 scheduler.send(target, msg_val);
             },
             .RECV => {
-                if (proc.pop()) |msg| {
+                if (proc.pop(scheduler)) |msg| {
                     stack[base + instr.A] = msg;
                 } else {
                     // rewind //TODO: rm magic number

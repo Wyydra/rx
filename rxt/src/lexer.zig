@@ -120,6 +120,8 @@ pub const Lexer = struct {
                             self.currentLine += 1;
                             self.currentLineOffset = 0;
                         }
+                        result.line = self.currentLine;
+                        result.lineOffset = self.currentLineOffset;
                     },
                     '"' => {
                         state = .string_literal;
@@ -148,8 +150,8 @@ pub const Lexer = struct {
                     },
                     else => {
                         result.tag = .invalid;
-                        result.loc.end = self.index;
-                        self.index = std.unicode.utf8ByteSequenceLength(c) catch 1;
+                        result.loc.end = self.index + 1;
+                        self.index += std.unicode.utf8ByteSequenceLength(c) catch 1;
                         return result;
                     },
                 },

@@ -58,11 +58,11 @@ pub fn main(init: std.process.Init) !void {
 
     const function = try compiler.compile(arena_alloc, &module);
 
-    var vm = try rx.init(gpa_alloc);
+    var vm = try rx.init(gpa_alloc, io);
     defer vm.deinit();
 
     for (plugins.items) |plugin_path| {
-        try vm.loadPlugin(plugin_path);
+        try vm.loadPort(plugin_path);
     }
 
     _ = try vm.spawn(function, &.{});

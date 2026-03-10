@@ -251,3 +251,45 @@ pub const Value = packed struct {
         }
     }
 };
+
+/// Deep-copy a Value into `allocator`-owned memory so it outlives the
+/// sender's process heap. Closures/functions are shared as read-only pointers.
+pub fn deepCopyAlloc(allocator: std.mem.Allocator, src: Value) error{OutOfMemory}!Value {
+    if (!src.isPointer()) return src; // integers, booleans, nil are immediate — safe as-is
+    const srcObj = src.asPointer() catch return src; // not a pointer? return as-is
+    return Value.pointer(try deepCopyObject(allocator, srcObj));
+}
+
+fn deepCopyObject(allocator: std.mem.Allocator, src: *HeapObject) error{OutOfMemory}!*HeapObject {
+    switch (src.kind) {
+        .string => return String.alloc(allocator, String.getChars(src)),
+        .tuple => {
+            const src_elems = Tuple.slice(src);
+            const dst = try HeapObject.allocate(allocator, .tuple, src_elems.len * @sizeOf(Value));
+            const dst_elems = Tuple.slice(dst);
+            for (src_elems, 0..) |elem, i| dst_elems[i] = try deepCopyAlloc(allocator, elem);
+            return dst;
+        },
+        // Closures/functions hold code pointers valid for all processes — share as read-only.
+        .closure, .function => return src,
+    }
+}
+
+/// Free a Value that was produced by `deepCopyAlloc`.
+/// Must NOT be called on GC-managed values living inside a process Heap.
+pub fn freeValue(allocator: std.mem.Allocator, v: Value) void {
+    if (!v.isPointer()) return;
+    const obj = v.asPointer() catch return;
+    freeObject(allocator, obj);
+}
+
+fn freeObject(allocator: std.mem.Allocator, obj: *HeapObject) void {
+    switch (obj.kind) {
+        .tuple => for (Tuple.slice(obj)) |elem| freeValue(allocator, elem),
+        .string => {}, // string bytes are part of the same contiguous allocation, freed below
+        .closure, .function => return, // shared, not owned by us
+    }
+    const total = @sizeOf(HeapObject) + obj.size;
+    const bytes: []align(8) u8 = @as([*]align(8) u8, @ptrCast(obj))[0..total];
+    allocator.free(bytes);
+}

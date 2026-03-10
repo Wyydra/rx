@@ -15,13 +15,13 @@ pub const VM = struct {
     math_port: MathPort,
     loader: PortLoader,
 
-    pub fn init(allocator: std.mem.Allocator) !*VM {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) !*VM {
         const self = try allocator.create(VM);
         errdefer allocator.destroy(self);
 
         self.allocator = allocator;
         self.system = System.init(allocator);
-        self.scheduler = Scheduler.init(allocator, 0, &self.system);
+        self.scheduler = Scheduler.init(allocator, 0, &self.system, io);
         self.loader = PortLoader.init(allocator);
 
         // Register built-in BIF ports
@@ -33,8 +33,8 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
-        self.loader.deinit();
         self.scheduler.deinit();
+        self.loader.deinit();
         self.system.deinit();
         self.allocator.destroy(self);
     }
@@ -43,8 +43,12 @@ pub const VM = struct {
         return self.scheduler.spawn(main_func, args);
     }
 
-    pub fn loadPlugin(self: *VM, path: []const u8) !void {
-        const load_fn = try self.loader.open(path);
+    // for now load is synchronous
+    pub fn loadPort(self: *VM, path: []const u8) !void {
+        const res = try self.loader.open(path);
+        const plugin = res[0];
+        const load_fn = res[1];
+        try self.scheduler.plugins.append(self.allocator, plugin);
         load_fn(@ptrCast(&self.scheduler));
     }
 

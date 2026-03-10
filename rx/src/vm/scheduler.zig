@@ -14,14 +14,22 @@ const Resource = struct {
     destroyFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
 };
 
+const AsyncPort = @import("port.zig").AsyncPort;
+const Plugin = @import("loader.zig").Plugin;
+
 pub const Scheduler = struct {
     registry: std.AutoHashMap(ActorId, Receiver),
     run_queue: DoublyLinkedList,
     waiting_queue: DoublyLinkedList,
     resources: std.ArrayListUnmanaged(Resource),
+    ports: std.ArrayListUnmanaged(*AsyncPort),
+    plugins: std.ArrayListUnmanaged(Plugin),
 
     allocator: std.mem.Allocator,
     system: *System,
+    io: std.Io,
+    io_event: std.Io.Event,
+    port_group: std.Io.Group,
 
     // Generator state
     id: u8,
@@ -29,14 +37,19 @@ pub const Scheduler = struct {
 
     const REDUCTION_LIMIT = 2000;
 
-    pub fn init(allocator: std.mem.Allocator, id: u8, system: *System) Scheduler {
+    pub fn init(allocator: std.mem.Allocator, id: u8, system: *System, io: std.Io) Scheduler {
         return .{
             .registry = .init(allocator),
             .run_queue = .{},
             .waiting_queue = .{},
             .resources = .empty,
+            .ports = .empty,
+            .plugins = .empty,
             .allocator = allocator,
             .system = system,
+            .io = io,
+            .io_event = .unset,
+            .port_group = .init,
             .id = id,
             .local_counter = 0,
         };
@@ -45,15 +58,32 @@ pub const Scheduler = struct {
     pub fn deinit(self: *Scheduler) void {
         while (self.run_queue.popFirst()) |node| {
             const proc: *Process = @fieldParentPtr("node", node);
-            proc.deinit();
+            proc.deinit(self);
         }
         while (self.waiting_queue.popFirst()) |node| {
             const proc: *Process = @fieldParentPtr("node", node);
-            proc.deinit();
+            proc.deinit(self);
         }
+        self.registry.deinit();
+
+        for (self.ports.items) |p| p.mailbox.queue.close(self.io);
+        self.port_group.await(self.io) catch |err| {
+            std.debug.print("port cleanup await error: {any}\n", .{err});
+        };
+        for (self.ports.items) |p| {
+            if (p.deinit) |f| f(p.context);
+            self.allocator.free(p.mailbox.buffer);
+            self.allocator.destroy(p);
+        }
+        self.ports.deinit(self.allocator);
+
+        for (self.plugins.items) |*lib| {
+            lib.close();
+        }
+        self.plugins.deinit(self.allocator);
+
         for (self.resources.items) |r| r.destroyFn(r.ptr, self.allocator);
         self.resources.deinit(self.allocator);
-        self.registry.deinit();
     }
 
     pub fn trackResource(
@@ -95,6 +125,7 @@ pub const Scheduler = struct {
                 self.waiting_queue.remove(&proc.node);
 
                 self.run_queue.append(&proc.node);
+                self.io_event.set(self.io);
 
                 log.debug("Scheduler: Immediate Wakeup -> PID {f}\n", .{proc.pid});
             }
@@ -107,7 +138,7 @@ pub const Scheduler = struct {
         while (true) {
             const node = self.run_queue.popFirst() orelse {
                 if (self.waiting_queue.first != null) {
-                    // TODO: consider save cpu here;
+                    try self.io_event.wait(self.io);
                     continue;
                 }
                 break; // idle
@@ -124,7 +155,7 @@ pub const Scheduler = struct {
 
                 .terminated => {
                     std.log.debug("Process {f} Terminated normally.", .{process.pid});
-                    process.deinit();
+                    process.deinit(self);
                 },
 
                 .waiting => {
@@ -136,7 +167,7 @@ pub const Scheduler = struct {
                 .error_state => {
                     // Crash
                     std.log.err("Process {f} Crashed! Error Code: {any}", .{ process.pid, result.getErrorCode() });
-                    process.deinit();
+                    process.deinit(self);
                 },
             }
         }

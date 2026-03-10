@@ -83,9 +83,11 @@ const Compiler = struct {
 
             switch (node) {
                 .print => |e| {
+                    const saved_reg = ctx.next_temp_reg;
                     const dest_reg = ctx.allocTempReg();
                     try self.compileExpression(a, ctx, e, dest_reg);
                     try a.print(dest_reg);
+                    ctx.next_temp_reg = saved_reg; // free the temp after printing
                 },
                 .ret => |r| {
                     const reg = try self.compileRValue(a, ctx, r);
@@ -116,10 +118,11 @@ const Compiler = struct {
                     ctx.next_temp_reg = cond_reg;
                 },
                 .send => |s| {
+                    const saved_reg = ctx.next_temp_reg;
                     const target_reg = try self.compileRValue(a, ctx, s.target);
                     const msg_reg = try self.compileRValue(a, ctx, s.msg);
                     try a.send(target_reg, msg_reg);
-                    ctx.next_temp_reg = target_reg;
+                    ctx.next_temp_reg = saved_reg; // free any temps used for target/msg
                 },
             }
         }

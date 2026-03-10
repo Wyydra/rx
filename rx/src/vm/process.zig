@@ -7,7 +7,9 @@ const Tuple = @import("../memory/tuple.zig");
 const Receiver = @import("interface.zig").Receiver;
 const Scheduler = @import("scheduler.zig").Scheduler;
 const ActorId = @import("actor.zig").ActorId;
+const TraceFlags = @import("../memory/heap.zig").TraceFlags;
 const Heap = @import("../memory/heap.zig").Heap;
+const Mailbox = @import("mailbox.zig").Mailbox;
 const StringMeta = @import("../memory/string.zig").StringMeta;
 
 pub const CallFrame = struct {
@@ -28,8 +30,7 @@ pub const Process = struct {
 
     heap: *Heap,
 
-    mailbox: std.ArrayList(Value),
-    mailbox_head: usize = 0,
+    mailbox: Mailbox,
 
     stack: std.ArrayList(Value),
     frames: std.ArrayList(CallFrame),
@@ -47,8 +48,7 @@ pub const Process = struct {
 
         self.node = .{ .prev = null, .next = null };
         self.pid = pid;
-        self.mailbox = .empty;
-        self.mailbox_head = 0;
+        self.mailbox = try Mailbox.init(allocator);
 
         self.heap = try allocator.create(Heap); // TODO: right way to do this?
         self.heap.* = try Heap.init(allocator, Heap.DEFAULT_SIZE);
@@ -82,39 +82,36 @@ pub const Process = struct {
         return self;
     }
 
-    pub fn deinit(self: *Process) void {
+    pub fn deinit(self: *Process, sched: *Scheduler) void {
         self.stack.deinit(self.allocator);
         self.frames.deinit(self.allocator);
-        self.mailbox.deinit(self.allocator);
+        self.mailbox.deinit(self.allocator, sched.io);
         self.heap.deinit();
         self.allocator.destroy(self.heap);
         self.allocator.destroy(self);
     }
 
-    pub fn push(self: *Process, msg: Value) !void {
-        const local_msg = try self.heap.deepCopyValue(msg);
-        try self.mailbox.append(self.allocator, local_msg);
+    pub fn push(self: *Process, msg: Value, sched: *Scheduler) !void {
+        // We must perform a deep-copy of the value so ownership is transferred to the receiving Process.
+        const copied_msg = try self.heap.deepCopyValue(msg);
+
+        self.mailbox.put(sched.io, copied_msg);
+
+        // Notify the scheduler to wake up this process if it's currently waiting.
+        if (self.status == .waiting) {
+            self.status = .running;
+            sched.waiting_queue.remove(&self.node);
+            sched.run_queue.append(&self.node);
+            sched.io_event.set(sched.io); // Also wake the scheduler loop if sleeping
+        }
     }
 
-    pub fn pop(self: *Process) ?Value {
-        if (self.mailbox_head >= self.mailbox.items.len) return null;
-
-        const msg = self.mailbox.items[self.mailbox_head];
-        self.mailbox_head += 1;
-
-        // Periodic compaction: slide remaining items to front every 64 pops
-        if (self.mailbox_head >= 64) {
-            const remaining = self.mailbox.items[self.mailbox_head..];
-            std.mem.copyForwards(Value, self.mailbox.items[0..remaining.len], remaining);
-            self.mailbox.items.len = remaining.len;
-            self.mailbox_head = 0;
-        }
-
-        return msg;
+    pub fn pop(self: *Process, sched: *Scheduler) ?Value {
+        return self.mailbox.get(sched.io);
     }
 
     pub fn collectGarbage(self: *Process) !void {
-        const heap = self.heap;
+        var heap = self.heap;
 
         heap.copy_offset = 0;
         heap.scanned_offset = 0;
@@ -134,8 +131,10 @@ pub const Process = struct {
             frame.closure = try heap.copyObject(frame.closure);
         }
 
-        for (self.mailbox.items) |*value| { // TODO: is this needed ?
-            try heap.copyValue(value);
+        for (self.mailbox.buffer) |*val| {
+            if (!val.isNil()) {
+                try heap.copyValue(val);
+            }
         }
 
         while (heap.scanned_offset < heap.copy_offset) {
@@ -214,9 +213,8 @@ pub const Process = struct {
     }
 
     fn receiveImpl(ptr: *anyopaque, msg: Value, sched: *Scheduler) bool {
-        _ = sched;
         const self = @as(*Process, @ptrCast(@alignCast(ptr)));
-        self.push(msg) catch unreachable;
+        self.push(msg, sched) catch unreachable;
         if (self.status == .waiting) {
             self.status = .running;
             return true;
