@@ -5,14 +5,12 @@ const HeapObject = @import("../memory/value.zig").HeapObject;
 const Value = @import("../memory/value.zig").Value;
 const ActorId = @import("actor.zig").ActorId;
 const Port = @import("port.zig").Port;
-const MathPort = @import("../bif/math.zig").MathPort;
 const PortLoader = @import("loader.zig").PortLoader;
 
 pub const VM = struct {
     system: System,
     scheduler: Scheduler,
     allocator: std.mem.Allocator,
-    math_port: MathPort,
     loader: PortLoader,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !*VM {
@@ -23,11 +21,6 @@ pub const VM = struct {
         self.system = System.init(allocator);
         self.scheduler = Scheduler.init(allocator, 0, &self.system, io);
         self.loader = PortLoader.init(allocator);
-
-        // Register built-in BIF ports
-        self.math_port = MathPort.init();
-        const math_pid = try self.scheduler.spawnReceiver(@import("port.zig").asReceiver(&self.math_port.port));
-        try self.system.register("math", math_pid);
 
         return self;
     }
