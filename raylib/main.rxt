@@ -1,9 +1,0 @@
-(module
- (func $_start ()
-  (let $win "window")
-  (let $me (self))
-  (let $msg "Hello World!")
-  (send $win $msg)
-  (recv)
- )
-)
