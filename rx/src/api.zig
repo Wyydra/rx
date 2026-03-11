@@ -32,7 +32,7 @@ export fn rx_spawn_port(
     port.* = .{ .context = ctx, .handler = handler, .deinit = deinit };
 
     // Register the port for cleanup on scheduler deinit before trying to spawn it.
-    sched.trackResource(@ptrCast(port), destroyPort) catch {
+    sched.system.trackResource(@ptrCast(port), destroyPort) catch {
         sched.allocator.destroy(port);
         return 0;
     };
@@ -55,7 +55,7 @@ export fn rx_spawn_port_async(
     } };
 
     // Register the port for cleanup on scheduler deinit.
-    sched.ports.append(sched.allocator, port) catch {
+    sched.system.ports.append(sched.allocator, port) catch {
         port.mailbox.deinit(sched.allocator, sched.io);
         sched.allocator.destroy(port);
         return 0;

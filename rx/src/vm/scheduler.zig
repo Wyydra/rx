@@ -21,9 +21,6 @@ pub const Scheduler = struct {
     registry: std.AutoHashMap(ActorId, Receiver),
     run_queue: DoublyLinkedList,
     waiting_queue: DoublyLinkedList,
-    resources: std.ArrayListUnmanaged(Resource),
-    ports: std.ArrayListUnmanaged(*AsyncPort),
-    plugins: std.ArrayListUnmanaged(Plugin),
 
     allocator: std.mem.Allocator,
     system: *System,
@@ -42,9 +39,6 @@ pub const Scheduler = struct {
             .registry = .init(allocator),
             .run_queue = .{},
             .waiting_queue = .{},
-            .resources = .empty,
-            .ports = .empty,
-            .plugins = .empty,
             .allocator = allocator,
             .system = system,
             .io = io,
@@ -65,33 +59,6 @@ pub const Scheduler = struct {
             proc.deinit(self);
         }
         self.registry.deinit();
-
-        for (self.ports.items) |p| p.mailbox.queue.close(self.io);
-        self.port_group.await(self.io) catch |err| {
-            std.debug.print("port cleanup await error: {any}\n", .{err});
-        };
-        for (self.ports.items) |p| {
-            if (p.deinit) |f| f(p.context);
-            self.allocator.free(p.mailbox.buffer);
-            self.allocator.destroy(p);
-        }
-        self.ports.deinit(self.allocator);
-
-        for (self.plugins.items) |*lib| {
-            lib.close();
-        }
-        self.plugins.deinit(self.allocator);
-
-        for (self.resources.items) |r| r.destroyFn(r.ptr, self.allocator);
-        self.resources.deinit(self.allocator);
-    }
-
-    pub fn trackResource(
-        self: *Scheduler,
-        ptr: *anyopaque,
-        destroyFn: *const fn (*anyopaque, std.mem.Allocator) void,
-    ) !void {
-        try self.resources.append(self.allocator, .{ .ptr = ptr, .destroyFn = destroyFn });
     }
 
     pub fn spawn(self: *Scheduler, main_func: *HeapObject, args: []const Value) !ActorId {

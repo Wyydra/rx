@@ -34,6 +34,7 @@ pub const VM = struct {
 
     pub fn deinit(self: *VM) void {
         self.scheduler.deinit();
+        self.system.teardownPorts(self.scheduler.io, &self.scheduler.port_group);
         self.loader.deinit();
         self.system.deinit();
         self.allocator.destroy(self);
@@ -46,9 +47,9 @@ pub const VM = struct {
     // for now load is synchronous
     pub fn loadPort(self: *VM, path: []const u8) !void {
         const res = try self.loader.open(path);
-        const plugin = res[0];
+        const dynamic_lib = res[0];
         const load_fn = res[1];
-        try self.scheduler.plugins.append(self.allocator, plugin);
+        try self.system.dynamic_libraries.append(self.allocator, dynamic_lib);
         load_fn(@ptrCast(&self.scheduler));
     }
 

@@ -2,10 +2,10 @@ const std = @import("std");
 
 pub const LoadFn = *const fn (sched: *anyopaque) callconv(.c) void;
 
-pub const Plugin = struct {
+pub const DynamicLibrary = struct {
     lib: std.DynLib,
 
-    pub fn close(self: *Plugin) void {
+    pub fn close(self: *DynamicLibrary) void {
         self.lib.close();
     }
 };
@@ -21,7 +21,7 @@ pub const PortLoader = struct {
         _ = self;
     }
 
-    pub fn open(self: *PortLoader, path: []const u8) !struct { Plugin, LoadFn } {
+    pub fn open(self: *PortLoader, path: []const u8) !struct { DynamicLibrary, LoadFn } {
         _ = self;
         // In Zig 0.16.x, DynLib.open usually takes an allocator.
         var lib = try std.DynLib.open(path);
