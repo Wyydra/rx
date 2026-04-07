@@ -8,8 +8,6 @@
 
   (let $msg (tuple $cmd_sub 15 27 $me))
   
-  (send "math" $msg)
-  (let $res (recv))
-  (print $res)
+  (print $msg)
  )
 )

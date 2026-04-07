@@ -1,0 +1,46 @@
+# Redesign of Port System: Extreme Performance Interop
+
+Pour atteindre des performances de niveau "moteur de jeu AAA" ou "HFT (High Frequency Trading)", un simple Lock-Free MPSC (`std.atomic.Queue`) en mémoire partagée est déjà extrêmement rapide (de l'ordre de la nanoseconde). Cependant, il existe d'autres modèles architecturaux encore plus performants selon le cas d'usage, notamment si le plugin externe doit tourner dans son *propre* processus OS pour la robustesse (crash isolation).
+
+Voici l'état de l'art mondial en matière de communication ultra-rapide, que nous intégrons à notre plan de conception pour les Ports.
+
+---
+
+## Les Modèles de la Performance Extrême
+
+### 1. Le "Lock-Free Ring Buffer" (LMAX Disruptor Pattern)
+- **Le Concept :** Au lieu d'une file d'attente MPSC classique avec des nœuds alloués, on pré-alloue un tableau circulaire massif en RAM (Ring Buffer) dont la taille est une puissance de 2. Les producteurs et consommateurs avancent via des index atomiques (SPSC ou MPSC).
+- **Avantage :** Cache-friendly absolu. Aucune allocation (`malloc`/`free`). Résout le problème du *False Sharing* en alignant les données sur les lignes de cache du CPU (64 bytes).
+- **Vitesse :** ~10 à 20 nanos par message.
+- **Utilisation :** Parfait si le Port (le plugin `.so`) et la VM partagent le même processus OS.
+
+### 2. "Shared Memory" + "Futex" (Zero-Copy IPC)
+- **Le Concept :** Si le Port s'exécute dans un *programme séparé* (pour éviter qu'un crash du jeu C++ ne tue la VM), on utilise `/dev/shm` (mémoire partagée Linux) ou `mmap`. La VM et le Port mappent le même Ring Buffer physiquement en RAM système. La synchronisation se fait via des atomics et un appel de réveil minimal (Futex / Eventfd) uniquement quand la file est vide/pleine.
+- **Avantage :** Isolation parfaite (si le plugin segfault, la VM survit), tout en gardant des perfs quasiment identiques au in-process (Zero Serialization, Zero Copy). Utilisé par DPDK, Aeron, ou Wayland.
+
+### 3. `io_uring` (Asynchronous I/O de Linux)
+- **Le Concept :** Au lieu d'utiliser `epoll()` ou `std.io` classique avec le noyau, on soumet des anneaux de requêtes au kernel Linux. Le kernel lit/écrit les descripteurs de fichiers sans *context switch* systémique.
+- **Avantage :** Utile si le Port est un programme OS pur qui parle via un socket/pipe POSIX classique. Maximise le débit global, mais moins rapide en latence pure qu'un Ring Buffer en mémoire.
+
+---
+
+## Le Plan d'Implémentation Retenu pour Rx : "Le Ring Buffer In-Process"
+
+Pour Rx, puisque nous voulons des plugins natifs dynamiques (`std.DynLib`) pour des moteurs de jeux (où SDL et GTK aiment être dans le processus principal), **le modèle #1 (Ring Buffer Lock-Free In-Process)** est le Saint Graal de la performance et de la flexibilité.
+
+### 1. `src/vm/port.zig` (Le Ring Buffer)
+- **[MODIFY]** `src/vm/port.zig`
+  - Créer un `RingBuffer` (buffer circulaire) pré-alloué (ex: 1024 `Value`).
+  - Implémenter des pointeurs de lecture/écriture (Head/Tail) gérés via `std.atomic`.
+  - Padding avec `@alignOf(64)` pour éviter le *false sharing* dans le cache L1/L2 du CPU.
+  - La VM `push()` à mort dans l'anneau.
+
+### 2. Le Threading Model du Plugin
+- La VM charge le `.so`.
+- La VM appelle `rx_port_start(ring_buffer_ptr)`.
+- Le Plugin natif prend ce pointeur, démarre son propre thread OS (`std.Thread`), et boucle infiniment pour lire les valeurs de l'anneau atomique (CPU Spin-Lock ou Yield s'il est vide).
+- Le Plugin exécute ses appels OpenGL/Vulkan/SDL.
+
+### 3. Résolution des Réveils (Backpressure)
+- Si l'anneau tourne plein régime, le CPU Spin est parfait.
+- Si le traffic est faible, le CPU va chauffer pour rien. On ajoutera une primitive de réveil léger (un `std.Thread.Condition` ou un `eventfd`) pour endormir le thread du plugin si la file est vide.

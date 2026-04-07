@@ -1,0 +1,184 @@
+path '/home/wydra/Documents/rx/rxt' does not contain a 'flake.nix', searching up
+debug(parser): Compiling func $_start
+debug(parser): start params
+debug(parser): end params
+debug(parser): start instructions
+debug(parser): got expr in let
+debug(parser): .{ .tag = .r_paren, .loc = .{ .start = 50, .end = 51 }, .line = 3, .lineOffset = 26 }
+debug(parser): got expr in let
+debug(parser): .{ .tag = .r_paren, .loc = .{ .start = 69, .end = 70 }, .line = 4, .lineOffset = 20 }
+debug(parser): got expr in let
+debug(parser): .{ .tag = .r_paren, .loc = .{ .start = 86, .end = 87 }, .line = 5, .lineOffset = 18 }
+debug(parser): got expr in let
+debug(parser): .{ .tag = .r_paren, .loc = .{ .start = 103, .end = 104 }, .line = 6, .lineOffset = 18 }
+debug(parser): got expr in let
+debug(parser): .{ .tag = .r_paren, .loc = .{ .start = 120, .end = 121 }, .line = 7, .lineOffset = 18 }
+debug(parser): end instructions
+== Code Dump ($_start) ==
+0000 raw: 00000001
+0004 raw: 00010101
+0008 raw: 00020201
+000c raw: 00030301
+0010 raw: 00040401
+0014 raw: 00060100
+0018 raw: 00070200
+001c raw: 00080300
+0020 raw: 00090400
+0024 raw: 0004050e
+0028 raw: 00050003
+002c raw: 00000004
+0030 raw: 00010000
+0034 raw: 0000010d
+0038 raw: 00050201
+003c raw: 0000020c
+debug(cpu): IP: 4 | Base: 1 | 
+debug(cpu): ...
+debug(cpu): 
+LOADK R0 K0 
+debug(cpu): 
+ 
+debug(cpu): IP: 8 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): ...
+debug(cpu): 
+LOADK R1 K1 
+debug(cpu): 
+ 
+debug(cpu): IP: 12 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): ...
+debug(cpu): 
+LOADK R2 K2 
+debug(cpu): 
+ 
+debug(cpu): IP: 16 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): ...
+debug(cpu): 
+LOADK R3 K3 
+debug(cpu): 
+ 
+debug(cpu): IP: 20 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): R3=27, 
+debug(cpu): ...
+debug(cpu): 
+LOADK R4 K4 
+debug(cpu): 
+ 
+debug(cpu): IP: 24 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): R3=27, 
+debug(cpu): R4=0, 
+debug(cpu): ...
+debug(cpu): 
+MOVE R1 R6 
+debug(cpu): 
+ 
+debug(cpu): IP: 28 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): R3=27, 
+debug(cpu): R4=0, 
+debug(cpu): R6=1, 
+debug(cpu): ...
+debug(cpu): 
+MOVE R2 R7 
+debug(cpu): 
+ 
+debug(cpu): IP: 32 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): R3=27, 
+debug(cpu): R4=0, 
+debug(cpu): R6=1, 
+debug(cpu): R7=15, 
+debug(cpu): ...
+debug(cpu): 
+MOVE R3 R8 
+debug(cpu): 
+ 
+debug(cpu): IP: 36 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): R3=27, 
+debug(cpu): R4=0, 
+debug(cpu): R6=1, 
+debug(cpu): R7=15, 
+debug(cpu): ...
+debug(cpu): 
+MOVE R4 R9 
+debug(cpu): 
+ 
+debug(cpu): IP: 40 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): R3=27, 
+debug(cpu): R4=0, 
+debug(cpu): R6=1, 
+debug(cpu): R7=15, 
+debug(cpu): ...
+debug(cpu): 
+NEWTUPLE R5  R4  R0 
+debug(cpu): 
+ 
+debug(cpu): IP: 44 | Base: 1 | 
+debug(cpu): R0="math", 
+debug(cpu): R1=1, 
+debug(cpu): R2=15, 
+debug(cpu): R3=27, 
+debug(cpu): R4=0, 
+debug(cpu): R5=(tuple 1 15 27 0), 
+debug(cpu): R6=1, 
+debug(cpu): R7=15, 
+debug(cpu): ...
+debug(cpu): 
+SEND R0 R5 
+debug(cpu): 
+ 
+error: Process <0:2> Crashed! Error Code: .invalid_instruction
+error(DebugAllocator): memory address 0x7ffff7b4006c leaked: 
+/nix/store/16sxa7vqzhglbcf53bkxcj010rxbrr1z-zig-0.16.0-dev.2682+02142a54d/lib/std/mem/Allocator.zig:450:40: 0x1102e1e in dupe__anon_16782 (std.zig)
+    const new_buf = try allocator.alloc(T, m.len);
+                                       ^
+/home/wydra/Documents/rx/rx/src/vm/system.zig:20:44: 0x11eba14 in register (root.zig)
+        const key = try self.allocator.dupe(u8, name);
+                                           ^
+/home/wydra/Documents/rx/rx/src/vm/vm.zig:27:33: 0x11ebf4a in init (root.zig)
+        try self.system.register("math", math_pid);
+                                ^
+/home/wydra/Documents/rx/rxt/src/main.zig:37:25: 0x11ee9ac in main (main.zig)
+    var vm = try rx.init(gpa_alloc);
+                        ^
+/nix/store/16sxa7vqzhglbcf53bkxcj010rxbrr1z-zig-0.16.0-dev.2682+02142a54d/lib/std/start.zig:716:30: 0x11ef8cf in callMain (std.zig)
+    return wrapMain(root.main(.{
+                             ^
+/nix/store/16sxa7vqzhglbcf53bkxcj010rxbrr1z-zig-0.16.0-dev.2682+02142a54d/lib/std/start.zig:190:5: 0x11da971 in _start (std.zig)
+    asm volatile (switch (native_arch) {
+    ^
+
+error(DebugAllocator): memory address 0x7ffff7c20550 leaked: 
+/home/wydra/Documents/rx/rx/src/vm/vm.zig:23:53: 0x11ebd37 in init (root.zig)
+        var math_port_storage = try allocator.create(MathPort);
+                                                    ^
+/home/wydra/Documents/rx/rxt/src/main.zig:37:25: 0x11ee9ac in main (main.zig)
+    var vm = try rx.init(gpa_alloc);
+                        ^
+/nix/store/16sxa7vqzhglbcf53bkxcj010rxbrr1z-zig-0.16.0-dev.2682+02142a54d/lib/std/start.zig:716:30: 0x11ef8cf in callMain (std.zig)
+    return wrapMain(root.main(.{
+                             ^
+/nix/store/16sxa7vqzhglbcf53bkxcj010rxbrr1z-zig-0.16.0-dev.2682+02142a54d/lib/std/start.zig:190:5: 0x11da971 in _start (std.zig)
+    asm volatile (switch (native_arch) {
+    ^
+
