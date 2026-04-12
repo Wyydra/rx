@@ -23,7 +23,6 @@ pub const PortLoader = struct {
 
     pub fn open(self: *PortLoader, path: []const u8) !struct { DynamicLibrary, LoadFn } {
         _ = self;
-        // In Zig 0.16.x, DynLib.open usually takes an allocator.
         var lib = try std.DynLib.open(path);
         errdefer lib.close();
 

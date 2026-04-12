@@ -238,6 +238,23 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const res = (b.asInteger() catch 0) - (c.asInteger() catch 0);
                 stack[base + instr.A] = Value.integer(res);
             },
+            .MUL => {
+                // R[A] = R[B] * R[C]
+                const b = stack[base + instr.B];
+                const c = stack[base + instr.C];
+
+                const res = (b.asInteger() catch 0) * (c.asInteger() catch 0);
+                stack[base + instr.A] = Value.integer(res);
+            },
+            .DIV => {
+                // R[A] = R[B] / R[C]
+                const b = stack[base + instr.B];
+                const c = stack[base + instr.C];
+                const c_val = c.asInteger() catch 0;
+                if (c_val == 0) return ExecutionResult.err(.division_by_zero);
+                const res = @divTrunc(b.asInteger() catch 0, c_val);
+                stack[base + instr.A] = Value.integer(res);
+            },
             .LT => {
                 // R[A] = R[B] < R[C]
                 const b = stack[base + instr.B];
@@ -253,6 +270,12 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
 
                 const res = (b.asInteger() catch 0) > (c.asInteger() catch 0);
                 stack[base + instr.A] = Value.boolean(res);
+            },
+            .EQ => {
+                // R[A] = R[B] == R[C]
+                const b = stack[base + instr.B];
+                const c = stack[base + instr.C];
+                stack[base + instr.A] = Value.boolean(b.equals(c));
             },
             .JF => {
                 // JUMP if R(A) is false
@@ -303,6 +326,53 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 }
                 stack[base + instr.A] = Value.pointer(obj);
             },
+            .GETTUPLE => {
+                const target_val = stack[base + instr.B];
+                const target_obj = target_val.asPointer() catch return ExecutionResult.err(.invalid_instruction);
+                if (target_obj.kind != .tuple) return ExecutionResult.err(.invalid_instruction);
+                const elems = Tuple.slice(target_obj);
+                const idx = instr.C;
+                if (idx >= elems.len) return ExecutionResult.err(.invalid_instruction);
+                stack[base + instr.A] = elems[idx];
+            },
+            .TAILCALL => {
+                const closure_idx = base + instr.A;
+                const closure_val = stack[closure_idx];
+                const closure_obj = closure_val.asClosure() catch return ExecutionResult.err(.invalid_instruction);
+
+                const args_count = instr.B;
+                const callee_func = Closure.getFunction(closure_obj);
+                const min_stack_len = base + Function.getMaxRegs(callee_func);
+
+                if (proc.stack.items.len < min_stack_len) {
+                    const old_len = proc.stack.items.len;
+                    proc.stack.resize(proc.allocator, min_stack_len) catch
+                        return ExecutionResult.err(.out_of_memory);
+                    for (proc.stack.items[old_len..]) |*slot| slot.* = Value.nil();
+                }
+                stack = proc.stack.items;
+
+                // Shift arguments downwards
+                const src_start = closure_idx + 1;
+                if (args_count > 0) {
+                    std.mem.copyForwards(Value, stack[base .. base + args_count], stack[src_start .. src_start + args_count]);
+                }
+
+                // Clear remaining register window to avoid stale leaks
+                const max_regs = Function.getMaxRegs(callee_func);
+                for (args_count..max_regs) |i| {
+                    stack[base + i] = Value.nil();
+                }
+
+                frame.closure = closure_obj;
+
+                closure = closure_obj;
+                function = Closure.getFunction(closure);
+                code = Function.getCode(function);
+                constants = Function.getConstants(function);
+                ip = 0;
+                proc.saved_ip = 0;
+            },
             .CALL => {
                 // CALL R(A) R(B)
                 // R(A) = Closure
@@ -315,8 +385,6 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const new_base = closure_idx + 1;
 
                 // Ensure the stack has enough room for the new frame's register window.
-                // max_regs is the exact peak register count stored in the function at
-                // compile time — no guessing, no magic constants.
                 const callee_func = Closure.getFunction(closure_obj);
                 const min_stack_len = new_base + Function.getMaxRegs(callee_func);
                 if (proc.stack.items.len < min_stack_len) {
@@ -334,7 +402,6 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                     .closure = closure_obj,
                 }) catch return ExecutionResult.err(.out_of_memory);
 
-                // Update implementation state
                 frames = proc.frames.items;
                 frame_idx = frames.len - 1;
                 frame = &frames[frame_idx];

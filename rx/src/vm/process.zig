@@ -59,7 +59,8 @@ pub const Process = struct {
 
         self.allocator = allocator;
 
-        const max_initial_stack = @max(INITIAL_STACK_SIZE, args.len + 1); // +1 because closure is index 0
+        const min_stack_len = 1 + Function.getMaxRegs(main_func);
+        const max_initial_stack = @max(@max(INITIAL_STACK_SIZE, args.len + 1), min_stack_len); // +1 because closure is index 0
         try self.stack.ensureTotalCapacity(allocator, max_initial_stack);
         try self.frames.ensureTotalCapacity(allocator, INITIAL_FRAME_CAPACITY);
 

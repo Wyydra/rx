@@ -1,0 +1,16 @@
+.{
+    .name = .ui,
+    .version = "0.0.0",
+    .fingerprint = 0x27ff46b08f219a9a,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{
+        .rx = .{
+            .path = "../../rx",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

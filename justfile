@@ -17,3 +17,5 @@ build-plugin SRC:
 build-plugin-c SRC:
   cc -shared -fPIC -I rx/include -o {{without_extension(SRC)}}.so {{SRC}}
 
+build PATH:
+  cd {{PATH}} && zig build

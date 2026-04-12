@@ -105,7 +105,8 @@ pub const Parser = struct {
             .keyword_self => .{
                 .expr = .{ .self = {} },
             },
-            .keyword_call => blk: {
+            .keyword_call, .keyword_tail_call => blk: {
+                const is_tail = tag == .keyword_tail_call;
                 const target = try self.parseIdentifier();
                 var args: std.ArrayList(ast.RValue) = .empty;
                 errdefer args.deinit(allocator);
@@ -117,7 +118,12 @@ pub const Parser = struct {
 
                 const owned_args = try args.toOwnedSlice(allocator);
                 break :blk .{
-                    .expr = .{
+                    .expr = if (is_tail) .{
+                        .tail_call = .{
+                            .target = target,
+                            .args = owned_args,
+                        },
+                    } else .{
                         .call = .{
                             .target = target,
                             .args = owned_args,
@@ -146,7 +152,12 @@ pub const Parser = struct {
                 };
             },
             .keyword_if => blk: {
-                const condition = try self.parseExpression(allocator);
+                const condition = if (self.check(.l_paren))
+                    try self.parseExpression(allocator)
+                else blk2: {
+                    const rval = try self.parseRValue();
+                    break :blk2 ast.Expression{ .val = rval };
+                };
                 var body: std.ArrayList(ast.Node) = .empty;
                 errdefer {
                     for (body.items) |*n| n.deinit(allocator);
@@ -181,7 +192,8 @@ pub const Parser = struct {
         self.advance();
 
         const expr: ast.Expression = switch (tag) {
-            .keyword_call => bkl: {
+            .keyword_call, .keyword_tail_call => bkl: {
+                const is_tail = tag == .keyword_tail_call;
                 const target = try self.parseIdentifier();
                 var args: std.ArrayList(ast.RValue) = .empty;
                 errdefer args.deinit(allocator);
@@ -190,7 +202,7 @@ pub const Parser = struct {
                     try args.append(allocator, try self.parseRValue());
                 }
 
-                break :bkl .{ .call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
+                break :bkl if (is_tail) .{ .tail_call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } } else .{ .call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
             },
             .keyword_recv => .{ .recv = {} },
             .keyword_self => .{ .self = {} },
@@ -205,11 +217,14 @@ pub const Parser = struct {
 
                 break :blk .{ .spawn = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
             },
-            .keyword_lt, .keyword_add, .keyword_sub => blk: {
+            .keyword_lt, .keyword_add, .keyword_sub, .keyword_eq, .keyword_mul, .keyword_div => blk: {
                 const op: ast.BinaryOp = switch (tag) {
                     .keyword_lt => .lt,
                     .keyword_add => .add,
                     .keyword_sub => .sub,
+                    .keyword_mul => .mul,
+                    .keyword_div => .div,
+                    .keyword_eq => .eq,
                     else => unreachable,
                 };
                 const lhs = try self.parseRValue();
@@ -230,6 +245,11 @@ pub const Parser = struct {
 
                 break :blk .{ .tuple = .{ .elements = try elements.toOwnedSlice(allocator) } };
             },
+            .keyword_tuple_get => blk: {
+                const target = try self.parseRValue();
+                const index = try self.parseRValue();
+                break :blk .{ .tuple_get = .{ .target = target, .index = index } };
+            },
             else => {
                 log.err("Unknown expression operator {any}", .{tag});
                 return error.UnknownExpression;
@@ -247,6 +267,12 @@ pub const Parser = struct {
             const content = rawToken[1 .. rawToken.len - 1]; // remove '"'
             self.advance();
             return ast.RValue{ .Val = .{ .string = content } };
+        }
+        if (self.check(.atom_literal)) {
+            const rawToken = self.lexer.getTokenStr(self.curToken);
+            const content = rawToken[1..]; // remove ':'
+            self.advance();
+            return ast.RValue{ .Val = .{ .atom = content } };
         }
         if (self.check(.identifier)) {
             const rawToken = self.lexer.getTokenStr(self.curToken);

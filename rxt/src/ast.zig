@@ -11,6 +11,7 @@ pub const Register = u8;
 pub const Literal = union(enum) {
     integer: i64,
     string: []const u8,
+    atom: []const u8,
     void: void,
 };
 
@@ -26,7 +27,7 @@ pub const RValue = union(enum) {
     Val: Literal,
 };
 
-pub const BinaryOp = enum { add, sub, lt, gt };
+pub const BinaryOp = enum { add, sub, mul, div, lt, gt, eq };
 
 pub const Expression = union(enum) {
     binary: struct {
@@ -40,6 +41,14 @@ pub const Expression = union(enum) {
     },
     tuple: struct {
         elements: []RValue,
+    },
+    tuple_get: struct {
+        target: RValue,
+        index: RValue,
+    },
+    tail_call: struct {
+        target: Identifier,
+        args: []RValue,
     },
     spawn: struct {
         target: RValue,
@@ -58,6 +67,9 @@ pub const Expression = union(enum) {
             .spawn => |s| {
                 log.debug("deinit spawn args", .{});
                 allocator.free(s.args);
+            },
+            .tail_call => |c| {
+                allocator.free(c.args);
             },
             else => {},
         }

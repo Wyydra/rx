@@ -100,6 +100,16 @@ export fn rx_make_bool(b: bool) callconv(.c) Value {
 export fn rx_make_int(v: i64) callconv(.c) Value {
     return Value.integer(v);
 }
+export fn rx_make_string(sched_ptr: *anyopaque, chars: [*]const u8, len: usize) callconv(.c) Value {
+    const sched: *Scheduler = @ptrCast(@alignCast(sched_ptr));
+    const obj = @import("memory/string.zig").alloc(sched.allocator, chars[0..len]) catch return Value.nil();
+    return Value.pointer(obj);
+}
+export fn rx_make_tuple(sched_ptr: *anyopaque, elements: [*]const Value, len: usize) callconv(.c) Value {
+    const sched: *Scheduler = @ptrCast(@alignCast(sched_ptr));
+    const obj = Tuple.alloc(sched.allocator, elements[0..len]) catch return Value.nil();
+    return Value.pointer(obj);
+}
 
 export fn rx_is_nil(v: Value) callconv(.c) bool {
     return v.isNil();

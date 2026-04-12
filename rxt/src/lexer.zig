@@ -30,6 +30,11 @@ pub const Token = struct {
         .{ "lt", .keyword_lt },
         .{ "sub", .keyword_sub },
         .{ "add", .keyword_add },
+        .{ "mul", .keyword_mul },
+        .{ "div", .keyword_div },
+        .{ "eq", .keyword_eq },
+        .{ "tuple_get", .keyword_tuple_get },
+        .{ "tail_call", .keyword_tail_call },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -39,6 +44,8 @@ pub const Token = struct {
     pub const Tag = enum {
         number_literal,
         string_literal,
+        atom_literal,
+
         r_paren,
         l_paren,
         identifier,
@@ -57,6 +64,11 @@ pub const Token = struct {
         keyword_lt,
         keyword_sub,
         keyword_add,
+        keyword_mul,
+        keyword_div,
+        keyword_eq,
+        keyword_tuple_get,
+        keyword_tail_call,
         keyword_tuple,
         keyword_send,
         keyword_recv,
@@ -85,8 +97,11 @@ pub const Lexer = struct {
         invalid,
         number_literal,
         string_literal,
+        atom_literal,
         identifier,
+
         keyword,
+        comment,
     };
 
     pub fn next(self: *Lexer) Token {
@@ -127,7 +142,15 @@ pub const Lexer = struct {
                         state = .string_literal;
                         result.tag = .string_literal;
                     },
+                    ';' => {
+                        state = .comment;
+                    },
+                    ':' => {
+                        state = .atom_literal;
+                        result.tag = .atom_literal;
+                    },
                     '$' => {
+
                         state = .identifier;
                         result.tag = .identifier;
                     },
@@ -170,7 +193,12 @@ pub const Lexer = struct {
                     },
                     else => {},
                 },
+                .atom_literal => switch (c) {
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
+                    else => break,
+                },
                 .identifier => switch (c) {
+
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
                         if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
@@ -189,6 +217,23 @@ pub const Lexer = struct {
                         }
                         break;
                     },
+                },
+                .comment => switch (c) {
+                    '\n' => {
+                        state = .start;
+                        self.currentLine += 1;
+                        self.currentLineOffset = 0;
+                        result.loc.start = self.index + 1; // start of next potential token
+                    },
+                    0 => {
+                        if (self.index == self.buffer.len) {
+                            result.tag = .eof;
+                        } else {
+                            result.tag = .invalid;
+                        }
+                        break;
+                    },
+                    else => {},
                 },
                 .invalid => {
                     self.index += 1;

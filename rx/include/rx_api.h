@@ -64,6 +64,8 @@ void rx_port_send_external(rx_scheduler_t* sched, uint32_t target_id, rx_value_t
 rx_value_t rx_make_nil(void);
 rx_value_t rx_make_bool(bool b);
 rx_value_t rx_make_int(int64_t v);
+rx_value_t rx_make_string(rx_scheduler_t* sched, const char* chars, size_t len);
+rx_value_t rx_make_tuple(rx_scheduler_t* sched, const rx_value_t* elements, size_t len);
 
 /* --- Type tests --------------------------------------------------------- */
 

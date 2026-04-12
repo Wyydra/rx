@@ -12,9 +12,12 @@ pub const Opcode = enum(u8) {
 
     ADD, // R(A) = R(B) + R(C)
     SUB, // R(A) = R(B) - R(C)
+    MUL, // R(A) = R(B) * R(C)
+    DIV, // R(A) = R(B) / R(C)
 
     LT, // R(A) = R(B) < R(C)
     GT, // R(A) = R(B) > R(C)
+    EQ, // R(A) = R(B) == R(C)
 
     JF, // IF NOT R(A) JMP += Bx
 
@@ -24,11 +27,13 @@ pub const Opcode = enum(u8) {
     PRINT, // PRINT R(A)
 
     NEWTUPLE, // R(A) = tuple(R(A+1)..R(A+B)), B = element count
+    GETTUPLE, // R(A) = R(B)[C]
+    TAILCALL, // TAILCALL R(A) B
 
     pub inline fn reductionCost(self: Opcode) usize {
         return switch (self) {
             .MOVE, .LOADK, .CLOSURE => 1,
-            .ADD, .SUB, .LT, .GT => 1,
+            .LT, .GT, .ADD, .SUB, .MUL, .DIV, .EQ => 1,
             .JF => 2,
             .CALL => 4,
             .RET => 3,
@@ -38,6 +43,8 @@ pub const Opcode = enum(u8) {
             .SPAWN => 10,
             .PRINT => 6,
             .NEWTUPLE => 4,
+            .GETTUPLE => 2,
+            .TAILCALL => 4,
         };
     }
 };
@@ -98,6 +105,12 @@ pub const Instruction = packed struct {
             },
             .CALL => {
                 try writer.print("R{d} {d}", .{ self.A, self.B });
+            },
+            .TAILCALL => {
+                try writer.print("R{d} {d}", .{ self.A, self.B });
+            },
+            .GETTUPLE => {
+                try writer.print("R{d} R{d} {d}", .{ self.A, self.B, self.C });
             },
             .MOVE => {
                 try writer.print("R{d} R{d}", .{ self.A, self.B });

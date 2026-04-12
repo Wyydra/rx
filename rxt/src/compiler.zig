@@ -21,6 +21,7 @@ const Compiler = struct {
             .functions = functions,
         };
     }
+
     fn deinit(self: *Compiler) void {
         self.functions.deinit();
     }
@@ -113,9 +114,21 @@ const Compiler = struct {
                     try self.compileExpression(a, ctx, i.cond, cond_reg);
                     const jump_index = a.code.items.len;
                     try a.emit(.JF, cond_reg, 0, 0);
+
+                    var saved_aliases = try ctx.aliases.clone();
+                    defer saved_aliases.deinit();
+                    const saved_next_reg = ctx.next_temp_reg;
+
                     try self.compileBody(a, ctx, i.body);
+
+                    const high_water = ctx.next_temp_reg;
+                    ctx.aliases.deinit();
+                    ctx.aliases = saved_aliases.move();
+                    ctx.next_temp_reg = high_water;
+                    _ = saved_next_reg; // keep for documentation
+
                     try a.patchJump(jump_index);
-                    ctx.next_temp_reg = cond_reg;
+                    ctx.next_temp_reg = cond_reg + 1;
                 },
                 .send => |s| {
                     const saved_reg = ctx.next_temp_reg;
@@ -172,6 +185,21 @@ const Compiler = struct {
                 try a.emit(.NEWTUPLE, dest_reg, @intCast(t.elements.len), 0);
                 ctx.next_temp_reg = dest_reg + 1;
             },
+            .tuple_get => |t| {
+                const target_reg = try self.compileRValue(a, ctx, t.target);
+                switch (t.index) {
+                    .Val => |lit| {
+                        switch (lit) {
+                            .integer => |i| {
+                                try a.getTuple(dest_reg, target_reg, @intCast(i));
+                            },
+                            else => return error.InvalidTupleIndex,
+                        }
+                    },
+                    else => return error.InvalidTupleIndexType,
+                }
+                ctx.next_temp_reg = dest_reg + 1;
+            },
             .spawn => |s| {
                 const closure_reg = ctx.allocTempReg();
                 try self.compileRValueTo(a, ctx, s.target, closure_reg);
@@ -208,7 +236,33 @@ const Compiler = struct {
                     .gt => try a.emit(.GT, dest_reg, lhs_reg, rhs_reg),
                     .add => try a.emit(.ADD, dest_reg, lhs_reg, rhs_reg),
                     .sub => try a.emit(.SUB, dest_reg, lhs_reg, rhs_reg),
+                    .mul => try a.emit(.MUL, dest_reg, lhs_reg, rhs_reg),
+                    .div => try a.emit(.DIV, dest_reg, lhs_reg, rhs_reg),
+                    .eq => try a.emit(.EQ, dest_reg, lhs_reg, rhs_reg),
                 }
+            },
+            .tail_call => |c| {
+                if (self.functions.get(c.target)) |func_obj| {
+                    try a.closure(dest_reg, func_obj);
+                } else {
+                    log.err("Unknown function {s}", .{c.target});
+                    return error.UnknownFunction;
+                }
+
+                for (c.args, 0..) |arg, i| {
+                    const arg_reg = ctx.allocTempReg();
+                    std.debug.assert(arg_reg == dest_reg + 1 + i);
+
+                    switch (arg) {
+                        .Val => |lit| try self.compileLiteralTo(a, lit, arg_reg),
+                        .Ref => |lval| {
+                            const src_reg = try resolveLValue(ctx, lval);
+                            try a.move(src_reg, arg_reg);
+                        },
+                    }
+                }
+
+                try a.tailCall(dest_reg, @intCast(c.args.len));
             },
             .val => |v| try self.compileRValueTo(a, ctx, v, dest_reg),
         }
@@ -260,6 +314,7 @@ const Compiler = struct {
                     try a.loadString(dest_reg, s);
                 }
             },
+            .atom => |s| try a.loadString(dest_reg, s),
             .void => try a.loadConstant(dest_reg, rx.memory.Value.nil()),
         }
     }

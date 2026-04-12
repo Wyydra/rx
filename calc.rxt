@@ -1,0 +1,108 @@
+(module
+  (func $_start ()
+    (let $ui :ui)
+    (let $me (self))
+
+    (let $display (tuple :label "0" :display))
+
+    (let $btn_7   (tuple :button "7"  7))
+    (let $btn_8   (tuple :button "8"  8))
+    (let $btn_9   (tuple :button "9"  9))
+    (let $btn_div (tuple :button "/"  14))
+    (let $row_1   (tuple :hbox $btn_7 $btn_8 $btn_9 $btn_div))
+
+    (let $btn_4   (tuple :button "4"  4))
+    (let $btn_5   (tuple :button "5"  5))
+    (let $btn_6   (tuple :button "6"  6))
+    (let $btn_mul (tuple :button "*"  13))
+    (let $row_2   (tuple :hbox $btn_4 $btn_5 $btn_6 $btn_mul))
+
+    (let $btn_1   (tuple :button "1"  1))
+    (let $btn_2   (tuple :button "2"  2))
+    (let $btn_3   (tuple :button "3"  3))
+    (let $btn_sub (tuple :button "-"  12))
+    (let $row_3   (tuple :hbox $btn_1 $btn_2 $btn_3 $btn_sub))
+
+    (let $btn_c   (tuple :button "C"  10))
+    (let $btn_0   (tuple :button "0"  0))
+    (let $btn_eq  (tuple :button "="  15))
+    (let $btn_add (tuple :button "+"  11))
+    (let $row_4   (tuple :hbox $btn_c $btn_0 $btn_eq $btn_add))
+
+    (let $layout  (tuple :vbox $display $row_1 $row_2 $row_3 $row_4))
+    (let $draw    (tuple :draw $layout $me))
+    (send $ui $draw)
+
+    (tail_call $event_loop $ui 0 0 0 1)
+  )
+
+  ; state  = current displayed number
+  ; lhs    = left-hand side stored before operator
+  ; op     = 0 none | 11 + | 12 - | 13 * | 14 /
+  ; new    = 1 means next digit starts a fresh number
+  (func $event_loop ($ui $state $lhs $op $new)
+    (let $event (recv))
+    (let $id    (tuple_get $event 1))
+
+    ; ── digit 0-9 ───────────────────────────────────────────────────────────
+    (if (lt $id 10)
+      (if (eq $new 1)
+        (let $upd (tuple :update :display $id))
+        (send $ui $upd)
+        (tail_call $event_loop $ui $id $lhs $op 0)
+      )
+      (let $s1  (mul $state 10))
+      (let $acc (add $s1 $id))
+      (let $upd (tuple :update :display $acc))
+      (send $ui $upd)
+      (tail_call $event_loop $ui $acc $lhs $op 0)
+    )
+
+    ; ── clear ───────────────────────────────────────────────────────────────
+    (if (eq $id 10)
+      (let $upd (tuple :update :display 0))
+      (send $ui $upd)
+      (tail_call $event_loop $ui 0 0 0 1)
+    )
+
+    ; ── operators ───────────────────────────────────────────────────────────
+    (if (eq $id 11) (tail_call $event_loop $ui $state $state 11 1))
+    (if (eq $id 12) (tail_call $event_loop $ui $state $state 12 1))
+    (if (eq $id 13) (tail_call $event_loop $ui $state $state 13 1))
+    (if (eq $id 14) (tail_call $event_loop $ui $state $state 14 1))
+
+    (if (eq $id 15)
+      (if (eq $op 11)
+        (let $res (add $lhs $state))
+        (let $upd (tuple :update :display $res))
+        (send $ui $upd)
+        (tail_call $event_loop $ui $res 0 0 1)
+      )
+      (if (eq $op 12)
+        (let $res (sub $lhs $state))
+        (let $upd (tuple :update :display $res))
+        (send $ui $upd)
+        (tail_call $event_loop $ui $res 0 0 1)
+      )
+      (if (eq $op 13)
+        (let $res (mul $lhs $state))
+        (let $upd (tuple :update :display $res))
+        (send $ui $upd)
+        (tail_call $event_loop $ui $res 0 0 1)
+      )
+      (if (eq $op 14)
+        (let $res (div $lhs $state))
+        (let $upd (tuple :update :display $res))
+        (send $ui $upd)
+        (tail_call $event_loop $ui $res 0 0 1)
+      )
+      ; no op — just reset
+      (let $upd (tuple :update :display $state))
+      (send $ui $upd)
+      (tail_call $event_loop $ui $state 0 0 1)
+    )
+
+    ; ── unknown event — wait for next ────────────────────────────────────────
+    (tail_call $event_loop $ui $state $lhs $op $new)
+  )
+)

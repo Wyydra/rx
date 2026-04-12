@@ -1,0 +1,17 @@
+(module
+  ;; Entry point: kick off 10M iterations
+  (func $_start ()
+    (tail_call $loop 10000000)
+  )
+
+  ;; Count down from N to 0 using tail-call recursion.
+  ;; No stack frames accumulate because TAILCALL recycles the current frame.
+  (func $loop ($n)
+    (let $done (lt $n 1))
+    (if $done
+      (return $n)
+    )
+    (let $next (sub $n 1))
+    (tail_call $loop $next)
+  )
+)
