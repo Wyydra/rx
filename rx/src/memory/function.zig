@@ -4,7 +4,7 @@ const HeapObject = @import("value.zig").HeapObject;
 const Value = @import("value.zig").Value;
 const Instruction = @import("../bytecode/opcode.zig").Instruction;
 
-const FunctionMeta = packed struct {
+const FunctionMeta = packed struct(u64) {
     arity: u8,
     upvalue_count: u8,
     max_regs: u8,

@@ -6,24 +6,34 @@ const Heap = @import("../memory/heap.zig").Heap;
 const HeapObject = @import("../memory/value.zig").HeapObject;
 const Function = @import("../memory/function.zig");
 const Closure = @import("../memory/closure.zig");
+const String = @import("../memory/string.zig");
 
 pub const Assembler = struct {
     allocator: std.mem.Allocator,
     code: std.ArrayList(u8),
     constants: std.ArrayList(Value),
+    string_map: std.StringHashMap(*HeapObject),
+    atom_map: std.StringHashMap(*HeapObject),
     max_reg: u8 = 0,
+    const_map: std.AutoHashMap(Value, u32),
 
     pub fn init(allocator: std.mem.Allocator) Assembler {
         return .{
             .allocator = allocator,
             .code = .empty,
             .constants = .empty,
+            .string_map = std.StringHashMap(*HeapObject).init(allocator),
+            .atom_map = std.StringHashMap(*HeapObject).init(allocator),
+            .const_map = std.AutoHashMap(Value, u32).init(allocator),
         };
     }
 
     pub fn deinit(self: *Assembler) void {
         self.code.deinit(self.allocator);
         self.constants.deinit(self.allocator);
+        self.string_map.deinit();
+        self.atom_map.deinit();
+        self.const_map.deinit();
     }
 
     pub fn emit(self: *Assembler, op: Opcode, a: u8, b: u8, c: u8) !void {
@@ -37,12 +47,18 @@ pub const Assembler = struct {
     }
 
     pub fn loadConstant(self: *Assembler, reg: u8, val: Value) !void {
-        const len = self.constants.items.len;
+        if (self.const_map.get(val)) |idx| {
+            try self.emit(.LOADK, reg, @intCast(idx), 0);
+            return;
+        }
+
+        const idx = self.constants.items.len;
         try self.constants.append(self.allocator, val);
+        try self.const_map.put(val, @intCast(idx));
 
-        if (len > std.math.maxInt(u32)) return error.TooManyConstants;
+        if (idx > std.math.maxInt(u32)) return error.TooManyConstants;
 
-        try self.emit(.LOADK, reg, @intCast(len), 0);
+        try self.emit(.LOADK, reg, @intCast(idx), 0);
     }
 
     pub fn closure(self: *Assembler, dest_reg: u8, func_obj: *HeapObject) !void {
@@ -55,10 +71,27 @@ pub const Assembler = struct {
     }
 
     pub fn loadString(self: *Assembler, reg: u8, str: []const u8) !void {
-        const String = @import("../memory/string.zig");
-        const obj = try String.alloc(self.allocator, str);
+        if (self.string_map.get(str)) |obj| {
+            try self.loadConstant(reg, Value.pointer(obj));
+            return;
+        }
+
+        const obj = try String.alloc(self.allocator, .string, str);
         obj.flags = HeapObject.FROZEN;
+        try self.string_map.put(str, obj);
         try self.loadConstant(reg, Value.pointer(obj));
+    }
+
+    pub fn loadAtom(self: *Assembler, reg: u8, str: []const u8) !void {
+        if (self.atom_map.get(str)) |obj| {
+            try self.loadConstant(reg, Value.atom(obj));
+            return;
+        }
+
+        const obj = try String.alloc(self.allocator, .atom, str);
+        obj.flags = HeapObject.FROZEN;
+        try self.atom_map.put(str, obj);
+        try self.loadConstant(reg, Value.atom(obj));
     }
 
     pub fn send(self: *Assembler, target_reg: u8, msg_reg: u8) !void {

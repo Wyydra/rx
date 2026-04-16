@@ -49,7 +49,7 @@ pub const Opcode = enum(u8) {
     }
 };
 
-pub const Instruction = packed struct {
+pub const Instruction = packed struct(u32) {
     opcode: u8,
     A: u8,
     B: u8,

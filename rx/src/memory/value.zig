@@ -10,6 +10,7 @@ pub const HeapObject = packed struct {
         closure,
         function,
         string,
+        atom,
         tuple,
     };
 
@@ -76,7 +77,7 @@ pub const HeapObject = packed struct {
     }
 };
 
-pub const Value = packed struct {
+pub const Value = packed struct(u64) {
     bits: u64,
 
     const TAG_BITS = 3;
@@ -93,7 +94,7 @@ pub const Value = packed struct {
         integer = 0b001,
         nil = 0b010,
         boolean = 0b011,
-        // pid = 0b100,
+        atom = 0b100,
         // reserved1 = 0b101,
         // reserved2 = 0b110,
         // reserved3 = 0b111,
@@ -119,11 +120,17 @@ pub const Value = packed struct {
     pub fn pointer(obj: *HeapObject) Value {
         const addr = @intFromPtr(obj);
         std.debug.assert(addr & TAG_MASK == 0);
-        return .{ .bits = addr };
+        return .{ .bits = addr | @intFromEnum(Tag.pointer) };
+    }
+
+    pub fn atom(obj: *HeapObject) Value {
+        const addr = @intFromPtr(obj);
+        std.debug.assert(addr & TAG_MASK == 0);
+        return .{ .bits = addr | @intFromEnum(Tag.atom) };
     }
 
     pub fn string(heap: *Heap, s: []const u8) !Value {
-        const obj = try String.alloc(heap, s);
+        const obj = try String.alloc(heap.allocator(), .string, s);
         return Value.pointer(obj);
     }
 
@@ -142,6 +149,14 @@ pub const Value = packed struct {
     }
     pub inline fn isPointer(self: Value) bool {
         return self.getTag() == .pointer;
+    }
+    pub inline fn isAtom(self: Value) bool {
+        return self.getTag() == .atom;
+    }
+
+    /// True for any value backed by a HeapObject (pointer or atom tag).
+    pub inline fn isHeapAllocated(self: Value) bool {
+        return self.isPointer() or self.isAtom();
     }
 
     pub fn isClosure(self: Value) bool {
@@ -162,6 +177,13 @@ pub const Value = packed struct {
         return obj.kind == .string;
     }
 
+    pub fn asAtom(self: Value) ![]const u8 {
+        if (!self.isAtom()) return error.TypeError;
+        const addr = self.bits & PAYLOAD_MASK;
+        const obj: *HeapObject = @ptrFromInt(@as(usize, @intCast(addr)));
+        return String.getChars(obj);
+    }
+
     pub fn asBoolean(self: Value) !bool {
         if (self.getTag() != .boolean) return error.TypeError;
         const payload = self.bits >> TAG_BITS;
@@ -175,7 +197,8 @@ pub const Value = packed struct {
     }
 
     pub fn asPointer(self: Value) !*HeapObject {
-        if (self.getTag() != .pointer) return error.TypeError;
+        const tag = self.getTag();
+        if (tag != .pointer and tag != .atom) return error.TypeError;
         const addr = self.bits & PAYLOAD_MASK;
         const ptr: *HeapObject = @ptrFromInt(@as(usize, @intCast(addr)));
         std.debug.assert(@intFromPtr(ptr) % 8 == 0);
@@ -202,10 +225,16 @@ pub const Value = packed struct {
         if (self.bits == other.bits) return true;
 
         if (self.isString() and other.isString()) {
-            // Since strings are interned, pointer equality is sufficient!
             const obj1 = self.asPointer() catch unreachable;
             const obj2 = other.asPointer() catch unreachable;
-            return obj1 == obj2;
+            if (obj1 == obj2) return true;
+            return std.mem.eql(u8, String.getChars(obj1), String.getChars(obj2));
+        }
+
+        if (self.isAtom() and other.isAtom()) {
+            const s1 = self.asAtom() catch unreachable;
+            const s2 = other.asAtom() catch unreachable;
+            return std.mem.eql(u8, s1, s2);
         }
 
         if (self.getTag() != other.getTag()) return false;
@@ -228,12 +257,20 @@ pub const Value = packed struct {
                 const i = self.asInteger() catch unreachable;
                 try writer.print("{d}", .{i});
             },
+            .atom => {
+                const s = self.asAtom() catch unreachable;
+                try writer.print(":{s}", .{s});
+            },
             .pointer => {
                 const obj = self.asPointer() catch unreachable;
                 switch (obj.kind) {
                     .string => {
                         const s = self.asString() catch unreachable;
                         try writer.print("\"{s}\"", .{s});
+                    },
+                    .atom => {
+                        const s = String.getChars(obj);
+                        try writer.print(":{s}", .{s});
                     },
                     .closure => try writer.writeAll("#<closure>"),
                     .function => try writer.writeAll("#<function>"),
@@ -255,14 +292,17 @@ pub const Value = packed struct {
 /// Deep-copy a Value into `allocator`-owned memory so it outlives the
 /// sender's process heap. Closures/functions are shared as read-only pointers.
 pub fn deepCopyAlloc(allocator: std.mem.Allocator, src: Value) error{OutOfMemory}!Value {
-    if (!src.isPointer()) return src; // integers, booleans, nil are immediate — safe as-is
-    const srcObj = src.asPointer() catch return src; // not a pointer? return as-is
-    return Value.pointer(try deepCopyObject(allocator, srcObj));
+    if (!src.isHeapAllocated()) return src; // integers, booleans, nil are immediate — safe as-is
+    const srcObj = src.asPointer() catch return src;
+    const copied = try deepCopyObject(allocator, srcObj);
+    // Preserve the atom tag so the copy is still recognized as an atom.
+    return if (src.isAtom()) Value.atom(copied) else Value.pointer(copied);
 }
 
 fn deepCopyObject(allocator: std.mem.Allocator, src: *HeapObject) error{OutOfMemory}!*HeapObject {
     switch (src.kind) {
-        .string => return String.alloc(allocator, String.getChars(src)),
+        .string => return String.alloc(allocator, .string, String.getChars(src)),
+        .atom => return String.alloc(allocator, .atom, String.getChars(src)),
         .tuple => {
             const src_elems = Tuple.slice(src);
             const dst = try HeapObject.allocate(allocator, .tuple, src_elems.len * @sizeOf(Value));
@@ -278,7 +318,7 @@ fn deepCopyObject(allocator: std.mem.Allocator, src: *HeapObject) error{OutOfMem
 /// Free a Value that was produced by `deepCopyAlloc`.
 /// Must NOT be called on GC-managed values living inside a process Heap.
 pub fn freeValue(allocator: std.mem.Allocator, v: Value) void {
-    if (!v.isPointer()) return;
+    if (!v.isHeapAllocated()) return;
     const obj = v.asPointer() catch return;
     freeObject(allocator, obj);
 }
@@ -286,7 +326,7 @@ pub fn freeValue(allocator: std.mem.Allocator, v: Value) void {
 fn freeObject(allocator: std.mem.Allocator, obj: *HeapObject) void {
     switch (obj.kind) {
         .tuple => for (Tuple.slice(obj)) |elem| freeValue(allocator, elem),
-        .string => {}, // string bytes are part of the same contiguous allocation, freed below
+        .string, .atom => {}, // string/atom bytes are part of the same contiguous allocation, freed below
         .closure, .function => return, // shared, not owned by us
     }
     const total = @sizeOf(HeapObject) + obj.size;

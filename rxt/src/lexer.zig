@@ -157,7 +157,7 @@ pub const Lexer = struct {
                     'a'...'z', 'A'...'Z', '_' => {
                         state = .keyword;
                     },
-                    '0'...'9' => {
+                    '-', '0'...'9' => {
                         state = .number_literal;
                         result.tag = .number_literal;
                     },

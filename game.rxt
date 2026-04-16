@@ -1,0 +1,92 @@
+(module
+  (func $_start ()
+    (let $gpu :gpu)
+    (let $me (self))
+
+    ; Init window and bind self to receive events
+    (let $init_msg (tuple :init $me))
+    (send $gpu $init_msg)
+
+    ; Spawn player
+    (let $spawn_player (tuple :spawn :rect :player 400 300 50 50 :cyan 1))
+    (send $gpu $spawn_player)
+
+    ; Spawn enemies
+    (let $spawn_enemy1 (tuple :spawn :rect :enemy1 100 300 50 50 :red 1))
+    (send $gpu $spawn_enemy1)
+
+    (let $spawn_enemy2 (tuple :spawn :rect :enemy2 700 100 50 50 :yellow 1))
+    (send $gpu $spawn_enemy2)
+
+    ; Give enemies some velocity, handled completely by the C/Zig backend!
+    (let $phys1 (tuple :physics :enemy1 60 0))
+    (send $gpu $phys1)
+    (let $phys2 (tuple :physics :enemy2 0 60))
+    (send $gpu $phys2)
+    
+    (tail_call $event_loop $gpu :player)
+  )
+
+  (func $event_loop ($gpu $player)
+    (let $event (recv))
+    (let $type (tuple_get $event 0))
+
+    (if (eq $type :quit)
+      (return 0)
+    )
+
+    (if (eq $type :key_down)
+      (let $key (tuple_get $event 1))
+      
+      ; Assign velocities to the player actor
+      (if (eq $key :left)
+        (let $phys_l (tuple :physics $player -150 0))
+        (send $gpu $phys_l)
+      )
+      (if (eq $key :right)
+        (let $phys_r (tuple :physics $player 150 0))
+        (send $gpu $phys_r)
+      )
+      (if (eq $key :up)
+        (let $phys_u (tuple :physics $player 0 -150))
+        (send $gpu $phys_u)
+      )
+      (if (eq $key :down)
+        (let $phys_d (tuple :physics $player 0 150))
+        (send $gpu $phys_d)
+      )
+      
+      ; Escape to close window
+      (if (eq $key :escape) (return 0))
+    )
+
+    (if (eq $type :key_up)
+      (let $key (tuple_get $event 1))
+      ; Stop movement on release
+      (if (eq $key :left)
+        (let $stop_l (tuple :physics $player 0 0))
+        (send $gpu $stop_l)
+      )
+      (if (eq $key :right)
+        (let $stop_r (tuple :physics $player 0 0))
+        (send $gpu $stop_r)
+      )
+      (if (eq $key :up)
+        (let $stop_u (tuple :physics $player 0 0))
+        (send $gpu $stop_u)
+      )
+      (if (eq $key :down)
+        (let $stop_d (tuple :physics $player 0 0))
+        (send $gpu $stop_d)
+      )
+    )
+
+    (if (eq $type :collide)
+        ; Add a subtle camera shake on impact!
+        (let $shake_msg (tuple :shake 20))
+        (send $gpu $shake_msg)
+    )
+
+    (tail_call $event_loop $gpu $player)
+  )
+)

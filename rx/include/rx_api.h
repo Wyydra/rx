@@ -16,12 +16,25 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdarg.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef void rx_scheduler_t;
+typedef struct rx_scheduler_t rx_scheduler_t;
+typedef struct rx_allocator_t rx_allocator_t;
+typedef struct rx_arena_t rx_arena_t;
+
+/** Get the system-wide default allocator from the scheduler. */
+rx_allocator_t* rx_get_allocator(rx_scheduler_t* sched);
+
+/** Create a new arena for temporary allocations. */
+rx_arena_t* rx_arena_new(rx_scheduler_t* sched);
+/** Free an arena and all memory allocated within it. */
+void rx_arena_free(rx_arena_t* arena);
+/** Get an allocator that allocates memory from the arena. */
+rx_allocator_t* rx_arena_get_allocator(rx_arena_t* arena);
 
 /** NaN-boxed 64-bit value — same layout as Zig's Value packed struct. */
 typedef struct { uint64_t bits; } rx_value_t;
@@ -32,6 +45,7 @@ typedef struct { uint64_t bits; } rx_value_t;
 #define RX_TAG_INTEGER ((uint64_t)0x1)
 #define RX_TAG_NIL     ((uint64_t)0x2)
 #define RX_TAG_BOOLEAN ((uint64_t)0x3)
+#define RX_TAG_ATOM    ((uint64_t)0x4)
 
 typedef void (*rx_handler_t)(void* ctx, rx_value_t msg, rx_scheduler_t* sched);
 typedef void (*rx_deinit_t)(void* ctx);
@@ -59,13 +73,17 @@ void rx_port_send(rx_scheduler_t* sched, uint32_t target_id, rx_value_t msg);
 /** Send a message to any actor/port by ActorId safely from a background thread. */
 void rx_port_send_external(rx_scheduler_t* sched, uint32_t target_id, rx_value_t msg);
 
+/** Free a value that was produced by rx_make_*. Only needed if not using an arena. */
+void rx_value_free(rx_allocator_t* alloc, rx_value_t v);
+
 /* --- Value constructors ------------------------------------------------- */
 
 rx_value_t rx_make_nil(void);
 rx_value_t rx_make_bool(bool b);
 rx_value_t rx_make_int(int64_t v);
-rx_value_t rx_make_string(rx_scheduler_t* sched, const char* chars, size_t len);
-rx_value_t rx_make_tuple(rx_scheduler_t* sched, const rx_value_t* elements, size_t len);
+rx_value_t rx_make_string(rx_allocator_t* alloc, const char* chars, size_t len);
+rx_value_t rx_make_atom(rx_allocator_t* alloc, const char* chars, size_t len);
+rx_value_t rx_make_tuple(rx_allocator_t* alloc, const rx_value_t* elements, size_t len);
 
 /* --- Type tests --------------------------------------------------------- */
 
@@ -74,20 +92,32 @@ bool rx_is_bool   (rx_value_t v);
 bool rx_is_int    (rx_value_t v);
 bool rx_is_pointer(rx_value_t v);
 bool rx_is_string (rx_value_t v);
+bool rx_is_atom   (rx_value_t v);
+
+/** Polymorphic data/length for string or atom. Returns NULL/0 if not a string or atom. */
+const char* rx_val_cstr(rx_value_t v);
+size_t rx_val_len(rx_value_t v);
+
+/** Polymorphic equality check for string or atom against a null-terminated C string. */
+bool rx_val_eq_str(rx_value_t v, const char* s);
 
 /* --- Extractors --------------------------------------------------------- */
 
 bool    rx_get_bool(rx_value_t v);
 int64_t rx_get_int (rx_value_t v);
 
-/** String data pointer — valid ONLY during the handler call. */
 const char* rx_string_data(rx_value_t v);
 size_t      rx_string_len (rx_value_t v);
+
+const char* rx_atom_data  (rx_value_t v);
+size_t      rx_atom_len   (rx_value_t v);
 
 /** Tuple inspection — returns element count, or 0 if not a tuple. */
 uint32_t   rx_tuple_len(rx_value_t v);
 /** Returns the element at `index`, or nil if out of range or not a tuple. */
 rx_value_t rx_tuple_get(rx_value_t v, uint32_t index);
+/** Pattern-match a tuple message. Returns true if the tuple matches. */
+bool rx_match_tuple(rx_value_t msg, const char* cmd_name, const char* fmt, ...);
 
 /* --- Plugin entry point ------------------------------------------------- */
 
@@ -97,5 +127,4 @@ void rx_load(rx_scheduler_t* sched);
 #ifdef __cplusplus
 }
 #endif
-
 #endif /* RX_API_H */

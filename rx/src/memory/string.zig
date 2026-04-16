@@ -2,7 +2,7 @@ const std = @import("std");
 const Heap = @import("heap.zig").Heap;
 const HeapObject = @import("value.zig").HeapObject;
 
-pub const StringMeta = packed struct {
+pub const StringMeta = packed struct(u64) {
     hash: u32,
     len: u32,
 };
@@ -13,11 +13,11 @@ pub const StringMeta = packed struct {
 // 3. [Bytes...] (N bytes)
 // 4. [Null Terminator] (1 byte, optional but good for C-Interop)
 
-pub fn alloc(allocator: std.mem.Allocator, chars: []const u8) !*HeapObject {
+pub fn alloc(allocator: std.mem.Allocator, kind: HeapObject.Kind, chars: []const u8) !*HeapObject {
     const meta_size = @sizeOf(StringMeta);
     const total_size = meta_size + chars.len + 1;
 
-    const obj = try HeapObject.allocate(allocator, .string, total_size);
+    const obj = try HeapObject.allocate(allocator, kind, total_size);
 
     const payload_ptr = @as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject);
     const meta_ptr = @as(*StringMeta, @ptrCast(@alignCast(payload_ptr)));
@@ -42,7 +42,7 @@ pub fn alloc(allocator: std.mem.Allocator, chars: []const u8) !*HeapObject {
 }
 
 pub fn getMeta(obj: *const HeapObject) *const StringMeta {
-    std.debug.assert(obj.kind == .string);
+    std.debug.assert(obj.kind == .string or obj.kind == .atom);
     const payload_ptr = @as([*]const u8, @ptrCast(obj)) + @sizeOf(HeapObject);
     return @as(*const StringMeta, @ptrCast(@alignCast(payload_ptr)));
 }

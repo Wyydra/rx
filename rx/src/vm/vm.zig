@@ -5,13 +5,12 @@ const HeapObject = @import("../memory/value.zig").HeapObject;
 const Value = @import("../memory/value.zig").Value;
 const ActorId = @import("actor.zig").ActorId;
 const Port = @import("port.zig").Port;
-const PortLoader = @import("loader.zig").PortLoader;
+const loader = @import("loader.zig");
 
 pub const VM = struct {
     system: System,
     scheduler: Scheduler,
     allocator: std.mem.Allocator,
-    loader: PortLoader,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !*VM {
         const self = try allocator.create(VM);
@@ -20,7 +19,6 @@ pub const VM = struct {
         self.allocator = allocator;
         self.system = System.init(allocator);
         self.scheduler = Scheduler.init(allocator, 0, &self.system, io);
-        self.loader = PortLoader.init(allocator);
 
         return self;
     }
@@ -28,7 +26,6 @@ pub const VM = struct {
     pub fn deinit(self: *VM) void {
         self.scheduler.deinit();
         self.system.teardownPorts(self.scheduler.io, &self.scheduler.port_group);
-        self.loader.deinit();
         self.system.deinit();
         self.allocator.destroy(self);
     }
@@ -39,7 +36,7 @@ pub const VM = struct {
 
     // for now load is synchronous
     pub fn loadPort(self: *VM, path: []const u8) !void {
-        const res = try self.loader.open(path);
+        const res = try loader.open(path);
         const dynamic_lib = res[0];
         const load_fn = res[1];
         try self.system.dynamic_libraries.append(self.allocator, dynamic_lib);

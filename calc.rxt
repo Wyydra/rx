@@ -42,6 +42,12 @@
   ; new    = 1 means next digit starts a fresh number
   (func $event_loop ($ui $state $lhs $op $new)
     (let $event (recv))
+    (let $type  (tuple_get $event 0))
+
+    (if (eq $type :close)
+      (return 0)
+    )
+
     (let $id    (tuple_get $event 1))
 
     ; ── digit 0-9 ───────────────────────────────────────────────────────────

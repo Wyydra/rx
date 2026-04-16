@@ -9,6 +9,7 @@ pub const gboolean = c_int;
 
 pub extern fn gtk_application_new(application_id: [*:0]const u8, flags: c_int) ?*GtkApplication;
 pub extern fn g_application_run(app: *GtkApplication, argc: c_int, argv: ?[*]?[*:0]u8) c_int;
+pub extern fn g_application_quit(app: *GtkApplication) void;
 pub extern fn g_object_unref(object: *anyopaque) void;
 pub extern fn g_signal_connect_data(
     instance: *anyopaque,

@@ -20,6 +20,7 @@ pub const Heap = struct {
     scanned_offset: usize,
 
     strings: std.StringHashMap(*HeapObject),
+    atoms: std.StringHashMap(*HeapObject),
 
     pub const DEFAULT_SIZE: usize = 1024 * 1024; // 1MB
 
@@ -30,6 +31,9 @@ pub const Heap = struct {
         var strings = std.StringHashMap(*HeapObject).init(init_allocator);
         errdefer strings.deinit();
 
+        var atoms = std.StringHashMap(*HeapObject).init(init_allocator);
+        errdefer atoms.deinit();
+
         return Heap{
             .backing_allocator = init_allocator,
             .from_space = from_buffer,
@@ -38,12 +42,14 @@ pub const Heap = struct {
             .copy_offset = 0,
             .scanned_offset = 0,
             .strings = strings,
+            .atoms = atoms,
             .capacity = size,
         };
     }
 
     pub fn deinit(self: *Heap) void {
         self.strings.deinit();
+        self.atoms.deinit();
         self.backing_allocator.free(self.from_space);
         self.backing_allocator.free(self.to_space);
     }
@@ -51,6 +57,7 @@ pub const Heap = struct {
     pub fn reset(self: *Heap) void {
         self.offset = 0;
         self.strings.clearRetainingCapacity();
+        self.atoms.clearRetainingCapacity();
     }
 
     pub fn allocUnsafe(self: *Heap, kind: HeapObject.Kind, payload_size: usize) !*HeapObject {
@@ -141,10 +148,25 @@ pub const Heap = struct {
             return obj;
         }
 
-        const obj = try String.alloc(self.allocator(), chars);
+        const obj = try String.alloc(self.allocator(), .string, chars);
 
         const key_in_heap = String.getChars(obj);
         try self.strings.put(key_in_heap, obj);
+
+        return obj;
+    }
+
+    pub fn createAtom(self: *Heap, chars: []const u8) !*HeapObject {
+        const String = @import("string.zig");
+
+        if (self.atoms.get(chars)) |obj| {
+            return obj;
+        }
+
+        const obj = try String.alloc(self.allocator(), .atom, chars);
+
+        const key_in_heap = String.getChars(obj);
+        try self.atoms.put(key_in_heap, obj);
 
         return obj;
     }
@@ -186,10 +208,13 @@ pub const Heap = struct {
 
     /// Copy a Value from an external heap into THIS heap (for SEND message isolation).
     pub fn deepCopyValue(self: *Heap, src: Value) HeapError!Value {
-        if (!src.isPointer()) return src; // Immediate values (int, bool, nil) are safe as-is
+        if (!src.isPointer() and !src.isAtom()) return src; // Immediates safe
 
         const srcObj = src.asPointer() catch unreachable;
-        return Value.pointer(try self.deepCopyObject(srcObj));
+        const copy = try self.deepCopyObject(srcObj);
+
+        if (src.isAtom()) return Value.atom(copy);
+        return Value.pointer(copy);
     }
 
     fn deepCopyObject(self: *Heap, src: *HeapObject) HeapError!*HeapObject {
@@ -205,6 +230,10 @@ pub const Heap = struct {
                 // Re-intern the string in this heap (deduplicates automatically)
                 const chars = String.getChars(src);
                 return self.createString(chars);
+            },
+            .atom => {
+                const chars = String.getChars(src);
+                return self.createAtom(chars);
             },
             .tuple => {
                 const src_elems = Tuple.slice(src);

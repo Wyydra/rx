@@ -28,10 +28,17 @@
         zls_pkg = zls.packages.${system}.zls;
       in
       {
-        devShells.default = pkgs.mkShell { 
-          packages = with pkgs; [ pkg-config wasmtime python3 just lua valgrind kdePackages.kcachegrind gtk4]
+        devShells.default = pkgs.mkShell {
+          packages = with pkgs; [ pkg-config wasmtime python3 just lua valgrind kdePackages.kcachegrind gtk4 xorg.libXcursor]
                      ++ [ zig zls_pkg ];
           shellHook = ''
+            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (with pkgs; [
+              wayland
+              libxkbcommon
+              libdecor
+              libGL
+              libglvnd
+            ])}"
             export ZIG_GLOBAL_CACHE_DIR=.zig-cache
           '';
         };

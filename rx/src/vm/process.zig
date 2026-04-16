@@ -143,7 +143,7 @@ pub const Process = struct {
             const currentObj: *HeapObject = @ptrFromInt(currentObjPtr);
 
             switch (currentObj.kind) {
-                .string => {},
+                .string, .atom => {},
                 .closure => {
                     const env = Closure.getEnv(currentObj);
                     for (env) |*val| {
@@ -193,6 +193,19 @@ pub const Process = struct {
 
         heap.strings.deinit();
         heap.strings = newStrings;
+
+        var newAtoms = std.StringHashMap(*HeapObject).init(heap.backing_allocator);
+        var it_atoms = heap.atoms.iterator();
+        while (it_atoms.next()) |entry| {
+            const oldAtomObj = entry.value_ptr.*;
+            if (oldAtomObj.isMoved()) {
+                const newAtomObj = oldAtomObj.getForwardingPointer();
+                const newKey = @import("../memory/string.zig").getChars(newAtomObj);
+                try newAtoms.put(newKey, newAtomObj);
+            }
+        }
+        heap.atoms.deinit();
+        heap.atoms = newAtoms;
 
         const temp = heap.from_space;
         heap.from_space = heap.to_space;

@@ -62,7 +62,7 @@ const Compiler = struct {
             if (reg >= ctx.next_temp_reg) ctx.next_temp_reg = reg + 1;
         }
 
-        try self.compileBody(&a, &ctx, func.body);
+        try self.compileBody(&a, &ctx, func.body, true);
         const real_func = try a.compileToFunction();
 
         const mut_consts = rx.memory.Function.getConstantsMut(real_func);
@@ -78,7 +78,7 @@ const Compiler = struct {
         return real_func;
     }
 
-    fn compileBody(self: *Compiler, a: *rx.bytecode.Assembler, ctx: *FuncContext, body: []const ast.Node) !void {
+    fn compileBody(self: *Compiler, a: *rx.bytecode.Assembler, ctx: *FuncContext, body: []const ast.Node, is_function: bool) !void {
         for (body, 0..) |node, index| {
             const is_last = index == body.len - 1;
 
@@ -103,7 +103,7 @@ const Compiler = struct {
                     const dest_reg = ctx.allocTempReg();
                     try self.compileExpression(a, ctx, e, dest_reg);
 
-                    if (is_last) {
+                    if (is_last and is_function) {
                         try a.ret(dest_reg);
                     } else {
                         ctx.next_temp_reg = dest_reg; // reset reg
@@ -119,7 +119,7 @@ const Compiler = struct {
                     defer saved_aliases.deinit();
                     const saved_next_reg = ctx.next_temp_reg;
 
-                    try self.compileBody(a, ctx, i.body);
+                    try self.compileBody(a, ctx, i.body, false);
 
                     const high_water = ctx.next_temp_reg;
                     ctx.aliases.deinit();
@@ -140,10 +140,12 @@ const Compiler = struct {
             }
         }
 
-        if (body.len == 0 or (std.meta.activeTag(body[body.len - 1]) != .ret and std.meta.activeTag(body[body.len - 1]) != .expr)) {
-            const ret_reg = ctx.allocTempReg();
-            try a.loadConstant(ret_reg, rx.memory.Value.nil());
-            try a.ret(ret_reg);
+        if (is_function) {
+            if (body.len == 0 or (std.meta.activeTag(body[body.len - 1]) != .ret and std.meta.activeTag(body[body.len - 1]) != .expr)) {
+                const ret_reg = ctx.allocTempReg();
+                try a.loadConstant(ret_reg, rx.memory.Value.nil());
+                try a.ret(ret_reg);
+            }
         }
     }
 
@@ -314,7 +316,7 @@ const Compiler = struct {
                     try a.loadString(dest_reg, s);
                 }
             },
-            .atom => |s| try a.loadString(dest_reg, s),
+            .atom => |s| try a.loadAtom(dest_reg, s),
             .void => try a.loadConstant(dest_reg, rx.memory.Value.nil()),
         }
     }

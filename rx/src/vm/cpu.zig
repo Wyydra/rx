@@ -12,7 +12,7 @@ const ActorId = @import("actor.zig").ActorId;
 const log = std.log.scoped(.cpu);
 
 // TODO: old struct remake it
-pub const ExecutionResult = packed struct {
+pub const ExecutionResult = packed struct(u32) {
     state: State,
     cost_or_error: u6,
     payload: u24,
@@ -165,8 +165,8 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
 
                 const target = if (id_val.isInteger()) blk: {
                     break :blk ActorId.fromInt(@intCast(id_val.asInteger() catch unreachable));
-                } else if (id_val.isString()) blk: {
-                    const name = id_val.asString() catch unreachable;
+                } else if (id_val.isString() or id_val.isAtom()) blk: {
+                    const name = if (id_val.isString()) id_val.asString() catch unreachable else id_val.asAtom() catch unreachable;
                     if (scheduler.system.resolve(name)) |pid| {
                         break :blk pid;
                     } else {
