@@ -27,29 +27,48 @@ const Compiler = struct {
     }
 
     fn compile(self: *Compiler, allocator: std.mem.Allocator, mod: *const ast.Module) !*rx.memory.HeapObject {
-        // Pass 1: compile all non-$_start functions so their closures are
-        // available as constants when $_start is compiled.
+        // Pass 0: Pre-register all functions with placeholders
+        // This allows any function to reference any other function (forward refs/recursion)
+        var placeholders = std.AutoHashMap(*rx.memory.HeapObject, *rx.memory.HeapObject).init(allocator);
+        defer placeholders.deinit();
+
         for (mod.functions) |func| {
-            if (std.mem.eql(u8, func.name, "$_start")) continue;
-            const func_obj = try self.compileFunc(allocator, func);
-            try self.functions.put(func.name, func_obj);
+            const placeholder = try rx.memory.Function.alloc(allocator, 0, 0, 0, &.{}, &.{});
+            placeholder.flags = rx.memory.HeapObject.FROZEN;
+            try self.functions.put(func.name, placeholder);
         }
 
-        // Pass 2: compile $_start — callee closures are now in the map.
+        // Pass 1: Compile all function bodies
+        var compiled_funcs: std.ArrayList(*rx.memory.HeapObject) = .empty;
+        defer compiled_funcs.deinit(allocator);
+
         for (mod.functions) |func| {
-            if (!std.mem.eql(u8, func.name, "$_start")) continue;
-            const func_obj = try self.compileFunc(allocator, func);
-            return func_obj;
+            const placeholder = self.functions.get(func.name).?;
+            const real_func = try self.compileFunc(allocator, func, placeholder);
+            try placeholders.put(placeholder, real_func);
+            try compiled_funcs.append(allocator, real_func);
+
+            // Update the name map to point to the real function for future lookups
+            try self.functions.put(func.name, real_func);
         }
 
-        return error.NoStartFunction;
+        // Pass 2: Patch all references to placeholders with the real function pointers
+        for (compiled_funcs.items) |func_obj| {
+            const mut_consts = rx.memory.Function.getConstantsMut(func_obj);
+            for (mut_consts) |*c| {
+                if (c.isPointer()) {
+                    const ptr = c.asPointer() catch unreachable;
+                    if (placeholders.get(ptr)) |real| {
+                        c.* = rx.memory.Value.pointer(real);
+                    }
+                }
+            }
+        }
+
+        return self.functions.get("$_start") orelse error.NoStartFunction;
     }
 
-    fn compileFunc(self: *Compiler, allocator: std.mem.Allocator, func: ast.FuncDecl) !*rx.memory.HeapObject {
-        const placeholder_func = try rx.memory.Function.alloc(allocator, 0, 0, 0, &.{}, &.{});
-        placeholder_func.flags = rx.memory.HeapObject.FROZEN;
-        try self.functions.put(func.name, placeholder_func);
-
+    fn compileFunc(self: *Compiler, allocator: std.mem.Allocator, func: ast.FuncDecl, placeholder_func: *rx.memory.HeapObject) !*rx.memory.HeapObject {
         var a = rx.bytecode.Assembler.init(allocator);
         defer a.deinit();
 
@@ -90,9 +109,12 @@ const Compiler = struct {
                     try a.print(dest_reg);
                     ctx.next_temp_reg = saved_reg; // free the temp after printing
                 },
-                .ret => |r| {
-                    const reg = try self.compileRValue(a, ctx, r);
+                .ret => |e| {
+                    const saved_reg = ctx.next_temp_reg;
+                    const reg = ctx.allocTempReg();
+                    try self.compileExpression(a, ctx, e, reg);
                     try a.ret(reg);
+                    ctx.next_temp_reg = saved_reg;
                 },
                 .let => |l| {
                     const dest_reg = ctx.allocTempReg();
@@ -132,8 +154,10 @@ const Compiler = struct {
                 },
                 .send => |s| {
                     const saved_reg = ctx.next_temp_reg;
-                    const target_reg = try self.compileRValue(a, ctx, s.target);
-                    const msg_reg = try self.compileRValue(a, ctx, s.msg);
+                    const target_reg = ctx.allocTempReg();
+                    try self.compileExpression(a, ctx, s.target, target_reg);
+                    const msg_reg = ctx.allocTempReg();
+                    try self.compileExpression(a, ctx, s.msg, msg_reg);
                     try a.send(target_reg, msg_reg);
                     ctx.next_temp_reg = saved_reg; // free any temps used for target/msg
                 },

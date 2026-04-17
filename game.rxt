@@ -1,92 +1,85 @@
 (module
   (func $_start ()
-    (let $gpu :gpu)
+    (let $game :game)
     (let $me (self))
 
-    ; Init window and bind self to receive events
-    (let $init_msg (tuple :init $me))
-    (send $gpu $init_msg)
+    ; Setup main game actor - redundant now with actor-based system
 
-    ; Spawn player
-    (let $spawn_player (tuple :spawn :rect :player 400 300 50 50 :cyan 1))
-    (send $gpu $spawn_player)
-
-    ; Spawn enemies
-    (let $spawn_enemy1 (tuple :spawn :rect :enemy1 100 300 50 50 :red 1))
-    (send $gpu $spawn_enemy1)
-
-    (let $spawn_enemy2 (tuple :spawn :rect :enemy2 700 100 50 50 :yellow 1))
-    (send $gpu $spawn_enemy2)
-
-    ; Give enemies some velocity, handled completely by the C/Zig backend!
-    (let $phys1 (tuple :physics :enemy1 60 0))
-    (send $gpu $phys1)
-    (let $phys2 (tuple :physics :enemy2 0 60))
-    (send $gpu $phys2)
+    ; Spawn player actor
+    (spawn $player_logic $game)
     
-    (tail_call $event_loop $gpu :player)
+    ; Spawn enemy actors
+    (spawn $enemy_logic $game 100 300 :red 60 0)
+    (spawn $enemy_logic $game 700 100 :yellow 0 60)
+
+    (tail_call $main_loop)
   )
 
-  (func $event_loop ($gpu $player)
+  (func $main_loop ()
     (let $event (recv))
     (let $type (tuple_get $event 0))
-
+    
     (if (eq $type :quit)
       (return 0)
     )
+    
+    (tail_call $main_loop)
+  )
+
+  (func $player_logic ($game)
+    (print :player_starting)
+    (print $game)
+    (let $me (self))
+    ; Register as a physical entity
+    (send $game (tuple :register $me :rect 400 300 50 50 :cyan 1))
+    ; Subscribe to input events
+    (send $game (tuple :subscribe :input $me))
+
+    (tail_call $player_loop $game $me)
+  )
+
+  (func $player_loop ($game $me)
+    (let $msg (recv))
+    (let $type (tuple_get $msg 0))
 
     (if (eq $type :key_down)
-      (let $key (tuple_get $event 1))
-      
-      ; Assign velocities to the player actor
-      (if (eq $key :left)
-        (let $phys_l (tuple :physics $player -150 0))
-        (send $gpu $phys_l)
-      )
-      (if (eq $key :right)
-        (let $phys_r (tuple :physics $player 150 0))
-        (send $gpu $phys_r)
-      )
-      (if (eq $key :up)
-        (let $phys_u (tuple :physics $player 0 -150))
-        (send $gpu $phys_u)
-      )
-      (if (eq $key :down)
-        (let $phys_d (tuple :physics $player 0 150))
-        (send $gpu $phys_d)
-      )
-      
-      ; Escape to close window
-      (if (eq $key :escape) (return 0))
+      (let $key (tuple_get $msg 1))
+      (if (eq $key :left)  (send $game (tuple :physics $me -200 0)))
+      (if (eq $key :right) (send $game (tuple :physics $me 200 0)))
+      (if (eq $key :up)    (send $game (tuple :physics $me 0 -200)))
+      (if (eq $key :down)  (send $game (tuple :physics $me 0 200)))
     )
 
     (if (eq $type :key_up)
-      (let $key (tuple_get $event 1))
-      ; Stop movement on release
-      (if (eq $key :left)
-        (let $stop_l (tuple :physics $player 0 0))
-        (send $gpu $stop_l)
-      )
-      (if (eq $key :right)
-        (let $stop_r (tuple :physics $player 0 0))
-        (send $gpu $stop_r)
-      )
-      (if (eq $key :up)
-        (let $stop_u (tuple :physics $player 0 0))
-        (send $gpu $stop_u)
-      )
-      (if (eq $key :down)
-        (let $stop_d (tuple :physics $player 0 0))
-        (send $gpu $stop_d)
-      )
+      (send $game (tuple :physics $me 0 0))
     )
 
     (if (eq $type :collide)
-        ; Add a subtle camera shake on impact!
-        (let $shake_msg (tuple :shake 20))
-        (send $gpu $shake_msg)
+      (send $game (tuple :shake 15))
     )
 
-    (tail_call $event_loop $gpu $player)
+    (tail_call $player_loop $game $me)
+  )
+
+  (func $enemy_logic ($game $x $y $color $vx $vy)
+    (let $me (self))
+    ; register pid :rect x y w h color hitbox
+    (send $game (tuple :register $me :rect $x $y 50 50 $color 1))
+    (send $game (tuple :physics $me $vx $vy))
+
+    (tail_call $enemy_loop $game $me)
+  )
+
+  (func $enemy_loop ($game $me)
+    (let $msg (recv))
+    (let $type (tuple_get $msg 0))
+
+    (if (eq $type :collide)
+      ; Enemies just bounce, which is already handled by C physics engine for now.
+      ; But they could do logic here (e.g. change color)
+      (return 0) ; Just for demo
+    )
+
+    (tail_call $enemy_loop $game $me)
   )
 )

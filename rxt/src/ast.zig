@@ -61,11 +61,9 @@ pub const Expression = union(enum) {
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .call => |c| {
-                log.debug("deinit call args", .{});
                 allocator.free(c.args);
             },
             .spawn => |s| {
-                log.debug("deinit spawn args", .{});
                 allocator.free(s.args);
             },
             .tail_call => |c| {
@@ -83,11 +81,11 @@ pub const Node = union(enum) {
         expr: Expression,
     },
     send: struct {
-        target: RValue,
-        msg: RValue,
+        target: Expression,
+        msg: Expression,
     },
     print: Expression,
-    ret: RValue,
+    ret: Expression,
     @"if": struct {
         cond: Expression,
         body: []Node,
@@ -95,10 +93,19 @@ pub const Node = union(enum) {
 
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         switch (self.*) {
-            .expr => |*e| {
-                e.deinit(allocator);
+            .expr => |*e| e.deinit(allocator),
+            .let => |*l| l.expr.deinit(allocator),
+            .send => |*s| {
+                s.target.deinit(allocator);
+                s.msg.deinit(allocator);
             },
-            else => {},
+            .print => |*p| p.deinit(allocator),
+            .ret => |*r| r.deinit(allocator),
+            .@"if" => |*i| {
+                i.cond.deinit(allocator);
+                for (i.body) |*n| n.deinit(allocator);
+                allocator.free(i.body);
+            },
         }
     }
 };
@@ -115,7 +122,6 @@ pub const FuncDecl = struct {
         try writer.print("{s} (params)", .{self.name});
     }
     pub fn deinit(self: *FuncDecl, allocator: std.mem.Allocator) void {
-        log.debug("deinit FuncDecl", .{});
         for (self.body) |*node| {
             node.deinit(allocator);
         }
@@ -139,7 +145,6 @@ pub const Module = struct {
     }
 
     pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
-        log.debug("deinit module", .{});
         for (self.functions) |*func| {
             func.deinit(allocator);
         }

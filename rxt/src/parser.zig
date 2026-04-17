@@ -89,21 +89,57 @@ pub const Parser = struct {
         const tag = self.curToken.tag;
         self.advance();
         const node: ast.Node = switch (tag) {
-            .keyword_print => .{ .print = .{ .val = try self.parseRValue() } },
-            .keyword_return => .{
-                .ret = self.parseRValue() catch ast.RValue{ .Val = .void },
+            .keyword_print => blk: {
+                if (self.check(.l_paren)) {
+                    break :blk .{ .print = try self.parseExpression(allocator) };
+                } else {
+                    break :blk .{ .print = .{ .val = try self.parseRValue() } };
+                }
             },
-            .keyword_send => .{
-                .send = .{
-                    .target = try self.parseRValue(),
-                    .msg = try self.parseRValue(),
-                },
+            .keyword_return => blk: {
+                if (self.check(.l_paren)) {
+                    break :blk .{ .ret = try self.parseExpression(allocator) };
+                } else {
+                    const rval = self.parseRValue() catch ast.RValue{ .Val = .void };
+                    break :blk .{ .ret = .{ .val = rval } };
+                }
+            },
+            .keyword_send => blk: {
+                const target = if (self.check(.l_paren))
+                    try self.parseExpression(allocator)
+                else
+                    ast.Expression{ .val = try self.parseRValue() };
+
+                const msg = if (self.check(.l_paren))
+                    try self.parseExpression(allocator)
+                else
+                    ast.Expression{ .val = try self.parseRValue() };
+
+                break :blk .{ .send = .{ .target = target, .msg = msg } };
             },
             .keyword_recv => .{
                 .expr = .{ .recv = {} },
             },
             .keyword_self => .{
                 .expr = .{ .self = {} },
+            },
+            .keyword_spawn => blk: {
+                const target = try self.parseRValue();
+                var args: std.ArrayList(ast.RValue) = .empty;
+                errdefer args.deinit(allocator);
+
+                while (!self.check(.r_paren) and !self.check(.eof)) {
+                    try args.append(allocator, try self.parseRValue());
+                }
+
+                break :blk .{
+                    .expr = .{
+                        .spawn = .{
+                            .target = target,
+                            .args = try args.toOwnedSlice(allocator),
+                        },
+                    },
+                };
             },
             .keyword_call, .keyword_tail_call => blk: {
                 const is_tail = tag == .keyword_tail_call;

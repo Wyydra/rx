@@ -5,28 +5,22 @@ const input = @import("input.zig");
 const physics = @import("physics.zig");
 
 pub fn sdl_thread_main(eng: *engine.Engine) void {
-    std.debug.print("sdl_thread_main started\n", .{});
     if (!c.SDL_Init(c.SDL_INIT_VIDEO)) {
         std.debug.print("SDL_Init failed: {s}\n", .{c.SDL_GetError()});
         return;
     }
-    std.debug.print("SDL_Init success\n", .{});
-    std.debug.print("SDL_Init success\n", .{});
     defer c.SDL_Quit();
 
-    eng.mutex = c.SDL_CreateMutex();
     if (eng.mutex == null) {
         std.debug.print("SDL_CreateMutex failed: {s}\n", .{c.SDL_GetError()});
         return;
     }
-    std.debug.print("SDL_CreateMutex success\n", .{});
 
     eng.window = c.SDL_CreateWindow("Rx High-Perf GPU Engine", 800, 600, 0);
     if (eng.window == null) {
         std.debug.print("SDL_CreateWindow failed: {s}\n", .{c.SDL_GetError()});
         return;
     }
-    std.debug.print("SDL_CreateWindow success\n", .{});
     defer c.SDL_DestroyWindow(eng.window);
 
     eng.renderer = c.SDL_CreateRenderer(eng.window, null);
@@ -34,7 +28,6 @@ pub fn sdl_thread_main(eng: *engine.Engine) void {
         std.debug.print("SDL_CreateRenderer failed: {s}\n", .{c.SDL_GetError()});
         return;
     }
-    std.debug.print("SDL_CreateRenderer success\n", .{});
     defer c.SDL_DestroyRenderer(eng.renderer);
 
     var event: c.SDL_Event = undefined;
@@ -47,7 +40,11 @@ pub fn sdl_thread_main(eng: *engine.Engine) void {
                 input.sendQuitEvent(eng);
                 eng.running = false;
             } else if (event.type == c.SDL_EVENT_KEY_DOWN) {
-                input.sendKeyEvent(eng, .key_down, event.key.key);
+                if (event.key.key == c.SDLK_ESCAPE) {
+                    input.sendQuitEvent(eng);
+                } else {
+                    input.sendKeyEvent(eng, .key_down, event.key.key);
+                }
             } else if (event.type == c.SDL_EVENT_KEY_UP) {
                 input.sendKeyEvent(eng, .key_up, event.key.key);
             }
@@ -55,20 +52,20 @@ pub fn sdl_thread_main(eng: *engine.Engine) void {
 
         const current_time = c.SDL_GetTicks();
         const delta = current_time - last_time;
-        
+
         if (delta > 0) {
             last_time = current_time;
-            input.sendTickEvent(eng, delta);
+            // Removed automatic :tick flood to prevent mailbox saturation.
+            // Actors should use explicit timers if needed.
         }
 
         // Lock to step physics and render at the same time to prevent data races.
         // For 'turbo-performance' with thousands of entities, double buffering is better,
         // but locking once per 16ms frame for 1ms is perfectly fine for 2D.
         if (eng.mutex) |m| _ = c.SDL_LockMutex(m);
-        
-        // --- PHYSICS STEP ---
+
         const delta_f: f32 = @floatFromInt(delta);
-        
+
         physics.stepPhysics(eng, delta_f);
 
         const len = eng.scene.len;
@@ -87,7 +84,7 @@ pub fn sdl_thread_main(eng: *engine.Engine) void {
         var cx = eng.camera_x;
         var cy = eng.camera_y;
         const czoom = eng.camera_zoom;
-        
+
         if (eng.camera_shake > 0.1) {
             const ticks: f32 = @floatFromInt(current_time);
             cx += @sin(ticks * 0.05) * eng.camera_shake;
@@ -96,9 +93,6 @@ pub fn sdl_thread_main(eng: *engine.Engine) void {
         }
 
         // Draw Loop (Cache local traversal thanks to MultiArrayList)
-        if (len > 0) {
-            std.debug.print("Rendering {d} entities\n", .{len});
-        }
         for (0..len) |i| {
             // Apply Camera Transform
             const screen_x = (xs[i] - cx) * czoom;

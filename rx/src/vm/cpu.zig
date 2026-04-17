@@ -32,6 +32,7 @@ pub const ExecutionResult = packed struct(u32) {
         division_by_zero = 4,
         out_of_memory = 5,
         invalid_memory_access = 6,
+        unknown_actor = 7,
     };
 
     pub const WaitReason = enum(u6) {
@@ -170,8 +171,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                     if (scheduler.system.resolve(name)) |pid| {
                         break :blk pid;
                     } else {
-                        // TODO: Better error code or handle unknown process
-                        return ExecutionResult.err(.invalid_instruction);
+                        return ExecutionResult.err(.unknown_actor);
                     }
                 } else {
                     return ExecutionResult.err(.invalid_instruction);

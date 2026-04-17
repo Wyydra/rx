@@ -55,18 +55,12 @@ pub fn getAtomHash(val: rx.rx_value_t) ?u32 {
 pub fn handle_message(eng: *engine.Engine, msg: rx.rx_value_t) void {
     if (rx.rx_tuple_len(msg) == 0) return;
 
-    // Temporary variables for rx_match_tuple (using double as per 'f' format)
     var x: f64 = 0;
     var y: f64 = 0;
     var z: f64 = 0;
-    var id_val: rx.rx_value_t = undefined;
     var sender: i64 = 0;
     var atom_ptr: [*c]const u8 = undefined;
-
-    if (rx.rx_match_tuple(msg, "init", "i", &sender)) {
-        eng.target_actor = @intCast(sender);
-        return;
-    }
+    const cmd = rx.rx_tuple_get(msg, 0);
 
     if (rx.rx_match_tuple(msg, "camera", "fff", &x, &y, &z)) {
         if (eng.mutex) |m| {
@@ -88,18 +82,34 @@ pub fn handle_message(eng: *engine.Engine, msg: rx.rx_value_t) void {
         return;
     }
 
-    if (rx.rx_match_tuple(msg, "rm", "v", &id_val)) {
-        const id = getAtomHash(id_val) orelse return;
+    if (rx.rx_match_tuple(msg, "rm", "i", &sender)) {
         if (eng.mutex) |m| {
             _ = c.SDL_LockMutex(m);
             defer _ = c.SDL_UnlockMutex(m);
-            eng.removeEntity(id);
+            eng.removeEntity(@intCast(sender));
         }
         return;
     }
 
-    if (rx.rx_match_tuple(msg, "transform", "vff", &id_val, &x, &y)) {
-        const id = getAtomHash(id_val) orelse return;
+    if (rx.rx_val_eq_str(cmd, "subscribe")) {
+        // (subscribe kind pid) - length is 3
+        if (rx.rx_tuple_len(msg) >= 3) {
+            const topic = rx.rx_tuple_get(msg, 1);
+            const sub_pid = rx.rx_get_int(rx.rx_tuple_get(msg, 2));
+
+            if (rx.rx_val_eq_str(topic, "input")) {
+                if (eng.mutex) |m| {
+                    _ = c.SDL_LockMutex(m);
+                    defer _ = c.SDL_UnlockMutex(m);
+                    eng.input_subscribers.append(eng.allocator, @intCast(sub_pid)) catch {};
+                }
+            }
+        }
+        return;
+    }
+
+    if (rx.rx_match_tuple(msg, "transform", "iff", &sender, &x, &y)) {
+        const id: u32 = @intCast(sender);
         if (eng.mutex) |m| {
             _ = c.SDL_LockMutex(m);
             defer _ = c.SDL_UnlockMutex(m);
@@ -111,8 +121,8 @@ pub fn handle_message(eng: *engine.Engine, msg: rx.rx_value_t) void {
         return;
     }
 
-    if (rx.rx_match_tuple(msg, "physics", "vff", &id_val, &x, &y)) {
-        const id = getAtomHash(id_val) orelse return;
+    if (rx.rx_match_tuple(msg, "physics", "iff", &sender, &x, &y)) {
+        const id: u32 = @intCast(sender);
         if (eng.mutex) |m| {
             _ = c.SDL_LockMutex(m);
             defer _ = c.SDL_UnlockMutex(m);
@@ -124,14 +134,13 @@ pub fn handle_message(eng: *engine.Engine, msg: rx.rx_value_t) void {
         return;
     }
 
-    // Spawn remains manual for now because it has complex conditional logic for fields
-    // but we can still clean up the check.
-    const cmd = rx.rx_tuple_get(msg, 0);
-    if (rx.rx_val_eq_str(cmd, "spawn")) {
-        if (rx.rx_tuple_len(msg) >= 7) {
-            const kind_val = rx.rx_tuple_get(msg, 1);
-            const id = getAtomHash(rx.rx_tuple_get(msg, 2)) orelse return;
-            
+    // Register / Spawn
+    if (rx.rx_val_eq_str(cmd, "register")) {
+        if (rx.rx_tuple_len(msg) >= 8) {
+            const id_val = rx.rx_tuple_get(msg, 1);
+            const id: u32 = @intCast(rx.rx_get_int(id_val));
+            const kind_val = rx.rx_tuple_get(msg, 2);
+
             if (rx.rx_val_eq_str(kind_val, "rect")) {
                 if (eng.mutex) |m| {
                     _ = c.SDL_LockMutex(m);

@@ -28,6 +28,13 @@ pub fn stepPhysics(eng: *engine.Engine, delta_f: f32) void {
         ys[i] += vys[i] * (delta_f / 1000.0);
     }
 
+    // Boundary Check
+    for (0..len) |i| {
+        if (xs[i] < 0 or xs[i] + ws[i] > 800 or ys[i] < 0 or ys[i] + hs[i] > 600) {
+            input.sendWallCollision(eng, ids[i]);
+        }
+    }
+
     // Collision Check (AABB)
     for (0..len) |i| {
         if (!hitboxes[i]) continue;

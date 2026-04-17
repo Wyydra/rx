@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (std.mem.eql(u8, arg, "--plugin") or std.mem.eql(u8, arg, "-p")) {
+        if (std.mem.eql(u8, arg, "--plugins") or std.mem.eql(u8, arg, "-p")) {
             i += 1;
             if (i < args.len) {
                 try plugins.append(arena_alloc, args[i]);
