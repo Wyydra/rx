@@ -17,7 +17,7 @@ pub const VM = struct {
         errdefer allocator.destroy(self);
 
         self.allocator = allocator;
-        self.system = System.init(allocator);
+        self.system = System.init(allocator, io);
         self.scheduler = Scheduler.init(allocator, 0, &self.system, io);
 
         return self;

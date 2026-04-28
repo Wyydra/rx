@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (script_path == null) {
-        std.debug.print("Error: No script file provided.\nUsage: {s} [--plugin <path>] <filename.rxt>\n", .{args[0]});
+        std.debug.print("Error: No script file provided.\nUsage: {s} [--plugins <path>] <filename.rxt>\n", .{args[0]});
         return;
     }
 

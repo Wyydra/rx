@@ -21,7 +21,7 @@ fn destroyPort(ptr: *anyopaque, allocator: std.mem.Allocator) void {
 fn destroyAsyncPort(ptr: *anyopaque, allocator: std.mem.Allocator) void {
     const port: *AsyncPort = @ptrCast(@alignCast(ptr));
     if (port.deinit) |f| f(port.context); // call user cleanup if set
-    allocator.free(port.mailbox.buffer);
+    port.mailbox.deinit();
     allocator.destroy(port);
 }
 
@@ -84,19 +84,25 @@ export fn rx_spawn_port_async(
 ) callconv(.c) u32 {
     const sched: *Scheduler = @ptrCast(@alignCast(sched_ptr));
     const port = sched.allocator.create(AsyncPort) catch return 0;
-    port.* = .{ .context = ctx, .handler = handler, .deinit = deinit, .mailbox = Mailbox.init(sched.allocator) catch {
+    const mailbox = Mailbox.init(sched.allocator, sched.io) catch {
         sched.allocator.destroy(port);
         return 0;
-    } };
+    };
+    port.* = .{ .context = ctx, .handler = handler, .deinit = deinit, .mailbox = mailbox };
 
     // Register the port for cleanup on scheduler deinit.
     sched.system.ports.append(sched.allocator, port) catch {
-        port.mailbox.deinit(sched.allocator, sched.io);
+        port.mailbox.deinit();
         sched.allocator.destroy(port);
         return 0;
     };
 
-    const pid = sched.spawnReceiver(p.asAsyncReceiver(port)) catch return 0;
+    const pid = sched.spawnReceiver(p.asAsyncReceiver(port)) catch {
+        _ = sched.system.ports.pop();
+        port.mailbox.deinit();
+        sched.allocator.destroy(port);
+        return 0;
+    };
 
     // Spawn the background port processing loop concurrently
     sched.port_group.async(sched.io, p.asyncPortLoop, .{ port, sched });

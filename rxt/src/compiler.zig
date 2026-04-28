@@ -186,16 +186,7 @@ const Compiler = struct {
                 for (c.args, 0..) |arg, i| {
                     const arg_reg = ctx.allocTempReg();
                     std.debug.assert(arg_reg == dest_reg + 1 + i);
-
-                    switch (arg) {
-                        .Val => |lit| {
-                            try self.compileLiteralTo(a, lit, arg_reg);
-                        },
-                        .Ref => |lval| {
-                            const src_reg = try resolveLValue(ctx, lval);
-                            try a.move(src_reg, arg_reg);
-                        },
-                    }
+                    try self.compileExpression(a, ctx, arg, arg_reg);
                 }
 
                 try a.call(dest_reg, @intCast(c.args.len));
@@ -206,43 +197,29 @@ const Compiler = struct {
             .tuple => |t| {
                 for (t.elements) |elem| {
                     const elem_reg = ctx.allocTempReg();
-                    try self.compileRValueTo(a, ctx, elem, elem_reg);
+                    try self.compileExpression(a, ctx, elem, elem_reg);
                 }
                 try a.emit(.NEWTUPLE, dest_reg, @intCast(t.elements.len), 0);
                 ctx.next_temp_reg = dest_reg + 1;
             },
             .tuple_get => |t| {
-                const target_reg = try self.compileRValue(a, ctx, t.target);
-                switch (t.index) {
-                    .Val => |lit| {
-                        switch (lit) {
-                            .integer => |i| {
-                                try a.getTuple(dest_reg, target_reg, @intCast(i));
-                            },
-                            else => return error.InvalidTupleIndex,
-                        }
-                    },
-                    else => return error.InvalidTupleIndexType,
-                }
+                const target_reg = ctx.allocTempReg();
+                try self.compileExpression(a, ctx, t.target.*, target_reg);
+                const index_reg = ctx.allocTempReg();
+                try self.compileExpression(a, ctx, t.index.*, index_reg);
+                
+                try a.getTuple(dest_reg, target_reg, index_reg);
+                
                 ctx.next_temp_reg = dest_reg + 1;
             },
             .spawn => |s| {
                 const closure_reg = ctx.allocTempReg();
-                try self.compileRValueTo(a, ctx, s.target, closure_reg);
+                try self.compileExpression(a, ctx, s.target.*, closure_reg);
 
                 for (s.args, 0..) |arg, i| {
                     const arg_reg = ctx.allocTempReg();
                     std.debug.assert(arg_reg == closure_reg + 1 + i); // sanity check, args placed immediately after closure
-
-                    switch (arg) {
-                        .Val => |lit| {
-                            try self.compileLiteralTo(a, lit, arg_reg);
-                        },
-                        .Ref => |lval| {
-                            const src_reg = try resolveLValue(ctx, lval);
-                            try a.move(src_reg, arg_reg);
-                        },
-                    }
+                    try self.compileExpression(a, ctx, arg, arg_reg);
                 }
 
                 try a.spawn(dest_reg, closure_reg, @intCast(s.args.len));
@@ -255,8 +232,10 @@ const Compiler = struct {
                 try a.emit(.SELF, dest_reg, 0, 0);
             },
             .binary => |b| {
-                const lhs_reg = try self.compileRValue(a, ctx, b.lhs);
-                const rhs_reg = try self.compileRValue(a, ctx, b.rhs);
+                const lhs_reg = ctx.allocTempReg();
+                try self.compileExpression(a, ctx, b.lhs.*, lhs_reg);
+                const rhs_reg = ctx.allocTempReg();
+                try self.compileExpression(a, ctx, b.rhs.*, rhs_reg);
                 switch (b.op) {
                     .lt => try a.emit(.LT, dest_reg, lhs_reg, rhs_reg),
                     .gt => try a.emit(.GT, dest_reg, lhs_reg, rhs_reg),
@@ -266,6 +245,7 @@ const Compiler = struct {
                     .div => try a.emit(.DIV, dest_reg, lhs_reg, rhs_reg),
                     .eq => try a.emit(.EQ, dest_reg, lhs_reg, rhs_reg),
                 }
+                ctx.next_temp_reg = dest_reg + 1;
             },
             .tail_call => |c| {
                 if (self.functions.get(c.target)) |func_obj| {
@@ -278,14 +258,7 @@ const Compiler = struct {
                 for (c.args, 0..) |arg, i| {
                     const arg_reg = ctx.allocTempReg();
                     std.debug.assert(arg_reg == dest_reg + 1 + i);
-
-                    switch (arg) {
-                        .Val => |lit| try self.compileLiteralTo(a, lit, arg_reg),
-                        .Ref => |lval| {
-                            const src_reg = try resolveLValue(ctx, lval);
-                            try a.move(src_reg, arg_reg);
-                        },
-                    }
+                    try self.compileExpression(a, ctx, arg, arg_reg);
                 }
 
                 try a.tailCall(dest_reg, @intCast(c.args.len));

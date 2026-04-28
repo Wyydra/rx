@@ -303,15 +303,41 @@ fn deepCopyObject(allocator: std.mem.Allocator, src: *HeapObject) error{OutOfMem
     switch (src.kind) {
         .string => return String.alloc(allocator, .string, String.getChars(src)),
         .atom => return String.alloc(allocator, .atom, String.getChars(src)),
+        .function => return src, // Safe: Static code
+
+        .closure => {
+            // A closure must copy its captured environment!
+            const src_env = Closure.getEnv(src);
+            const func = Closure.getFunction(src);
+            const dst = try Closure.alloc(allocator, func, @intCast(src_env.len));
+            const dst_env = Closure.getEnv(dst);
+
+            for (src_env, 0..) |elem, i| {
+                dst_env[i] = deepCopyAlloc(allocator, elem) catch |err| {
+                    // Note: freeObject handles recursive cleanup for tuples/closures
+                    freeObject(allocator, dst);
+                    return err;
+                };
+            }
+            return dst;
+        },
+
         .tuple => {
             const src_elems = Tuple.slice(src);
             const dst = try HeapObject.allocate(allocator, .tuple, src_elems.len * @sizeOf(Value));
             const dst_elems = Tuple.slice(dst);
-            for (src_elems, 0..) |elem, i| dst_elems[i] = try deepCopyAlloc(allocator, elem);
+
+            // Initialize with nil to ensure safe cleanup on failure
+            @memset(dst_elems, Value.nil());
+
+            for (src_elems, 0..) |elem, i| {
+                dst_elems[i] = deepCopyAlloc(allocator, elem) catch |err| {
+                    freeObject(allocator, dst); // Free the partial allocation!
+                    return err;
+                };
+            }
             return dst;
         },
-        // Closures/functions hold code pointers valid for all processes — share as read-only.
-        .closure, .function => return src,
     }
 }
 

@@ -1,3 +1,4 @@
+const std = @import("std");
 const Receiver = @import("interface.zig").Receiver;
 const Value = @import("../memory/value.zig").Value;
 const deepCopyAlloc = @import("../memory/value.zig").deepCopyAlloc;
@@ -36,10 +37,19 @@ pub const AsyncPort = struct {
 };
 
 pub fn asyncPortLoop(self: *AsyncPort, sched: *Scheduler) void {
-    while (self.mailbox.get(sched.io)) |msg| {
-        self.handler(self.context, msg, @ptrCast(sched));
-        // Free the deep-copied message now that the handler is done with it.
-        freeValue(sched.allocator, msg);
+    while (true) {
+        const msg_opt = self.mailbox.get() catch |err| switch (err) {
+            error.Closed => break,
+        };
+        if (msg_opt) |msg| {
+            self.handler(self.context, msg, @ptrCast(sched));
+            // Free the deep-copied message now that the handler is done with it.
+            freeValue(sched.allocator, msg);
+        } else {
+            // Non-blocking get returned null, but not closed. 
+            // We should yield to avoid busy-waiting.
+            std.Thread.yield() catch {};
+        }
     }
 }
 
@@ -47,7 +57,7 @@ fn asyncPortReceiveImpl(ptr: *anyopaque, msg: Value, sched: *Scheduler) bool {
     const self: *AsyncPort = @ptrCast(@alignCast(ptr));
     // Deep-copy the message so it outlives the sender's process heap // TODO this might clash with the gc
     const owned = deepCopyAlloc(sched.allocator, msg) catch return false;
-    self.mailbox.put(sched.io, owned);
+    self.mailbox.put(owned) catch return false;
     // Wake up the scheduler just in case the port sends an immediate reply to a sleeping process.
     sched.io_event.set(sched.io);
     return false;

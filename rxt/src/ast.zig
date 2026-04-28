@@ -32,27 +32,27 @@ pub const BinaryOp = enum { add, sub, mul, div, lt, gt, eq };
 pub const Expression = union(enum) {
     binary: struct {
         op: BinaryOp,
-        lhs: RValue,
-        rhs: RValue,
+        lhs: *Expression,
+        rhs: *Expression,
     },
     call: struct {
         target: Identifier,
-        args: []RValue,
+        args: []Expression,
     },
     tuple: struct {
-        elements: []RValue,
+        elements: []Expression,
     },
     tuple_get: struct {
-        target: RValue,
-        index: RValue,
+        target: *Expression,
+        index: *Expression,
     },
     tail_call: struct {
         target: Identifier,
-        args: []RValue,
+        args: []Expression,
     },
     spawn: struct {
-        target: RValue,
-        args: []RValue,
+        target: *Expression,
+        args: []Expression,
     },
     recv: void,
     self: void,
@@ -60,13 +60,34 @@ pub const Expression = union(enum) {
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
+            .binary => |b| {
+                b.lhs.deinit(allocator);
+                b.rhs.deinit(allocator);
+                allocator.destroy(b.lhs);
+                allocator.destroy(b.rhs);
+            },
             .call => |c| {
+                for (c.args) |*arg| arg.deinit(allocator);
                 allocator.free(c.args);
             },
+            .tuple => |t| {
+                for (t.elements) |*el| el.deinit(allocator);
+                allocator.free(t.elements);
+            },
+            .tuple_get => |t| {
+                t.target.deinit(allocator);
+                t.index.deinit(allocator);
+                allocator.destroy(t.target);
+                allocator.destroy(t.index);
+            },
             .spawn => |s| {
+                s.target.deinit(allocator);
+                allocator.destroy(s.target);
+                for (s.args) |*arg| arg.deinit(allocator);
                 allocator.free(s.args);
             },
             .tail_call => |c| {
+                for (c.args) |*arg| arg.deinit(allocator);
                 allocator.free(c.args);
             },
             else => {},

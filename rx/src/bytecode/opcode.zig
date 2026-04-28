@@ -19,6 +19,10 @@ pub const Opcode = enum(u8) {
     GT, // R(A) = R(B) > R(C)
     EQ, // R(A) = R(B) == R(C)
 
+    JMP, // JMP +Bx
+    JNTUP, // JNTUP R(A) B +C (jump offset C is in instructions)
+    JNEQ, // JNEQ R(A) R(B) +C (jump offset C is in instructions)
+
     JF, // IF NOT R(A) JMP += Bx
 
     CALL, // CALL R(A) B
@@ -27,14 +31,14 @@ pub const Opcode = enum(u8) {
     PRINT, // PRINT R(A)
 
     NEWTUPLE, // R(A) = tuple(R(A+1)..R(A+B)), B = element count
-    GETTUPLE, // R(A) = R(B)[C]
+    GETTUPLE, // R(A) = R(B)[R(C)]
     TAILCALL, // TAILCALL R(A) B
 
     pub inline fn reductionCost(self: Opcode) usize {
         return switch (self) {
             .MOVE, .LOADK, .CLOSURE => 1,
             .LT, .GT, .ADD, .SUB, .MUL, .DIV, .EQ => 1,
-            .JF => 2,
+            .JMP, .JNTUP, .JNEQ, .JF => 2,
             .CALL => 4,
             .RET => 3,
             .SEND => 8,
@@ -100,6 +104,15 @@ pub const Instruction = packed struct(u32) {
             .SPAWN => {
                 try writer.print("R{d} R{d} {d}", .{ self.A, self.B, self.C });
             },
+            .JMP => {
+                try writer.print("+{d}", .{self.getBx()});
+            },
+            .JNTUP => {
+                try writer.print("R{d} {d} +{d}", .{ self.A, self.B, self.C });
+            },
+            .JNEQ => {
+                try writer.print("R{d} R{d} +{d}", .{ self.A, self.B, self.C });
+            },
             .JF => {
                 try writer.print("R{d} +{d}", .{ self.A, self.getBx() });
             },
@@ -110,7 +123,7 @@ pub const Instruction = packed struct(u32) {
                 try writer.print("R{d} {d}", .{ self.A, self.B });
             },
             .GETTUPLE => {
-                try writer.print("R{d} R{d} {d}", .{ self.A, self.B, self.C });
+                try writer.print("R{d} R{d} R{d}", .{ self.A, self.B, self.C });
             },
             .MOVE => {
                 try writer.print("R{d} R{d}", .{ self.A, self.B });

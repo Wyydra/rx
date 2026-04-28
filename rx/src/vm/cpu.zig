@@ -33,6 +33,7 @@ pub const ExecutionResult = packed struct(u32) {
         out_of_memory = 5,
         invalid_memory_access = 6,
         unknown_actor = 7,
+        type_error = 8,
     };
 
     pub const WaitReason = enum(u6) {
@@ -130,7 +131,8 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
             return ExecutionResult.terminated(0);
         }
 
-        const raw_instr = std.mem.readInt(u32, code[ip..][0..4], .little); // TODO: ugly
+        const instr_ptr: *const [4]u8 = @ptrCast(code.ptr + ip);
+        const raw_instr = std.mem.readInt(u32, instr_ptr, .little);
         const instr = Instruction.decode(raw_instr);
         ip += 4;
 
@@ -180,7 +182,7 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 scheduler.send(target, msg_val);
             },
             .RECV => {
-                if (proc.pop(scheduler)) |msg| {
+                if (proc.pop(scheduler.io) catch null) |msg| {
                     stack[base + instr.A] = msg;
                 } else {
                     // rewind //TODO: rm magic number
@@ -226,49 +228,56 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 // R[A] = R[B] + R[C]
                 const b = stack[base + instr.B];
                 const c = stack[base + instr.C];
+                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
 
-                const res = (b.asInteger() catch 0) + (c.asInteger() catch 0);
+                const res = (b.asInteger() catch unreachable) + (c.asInteger() catch unreachable);
                 stack[base + instr.A] = Value.integer(res);
             },
             .SUB => {
                 // R[A] = R[B] - R[C]
                 const b = stack[base + instr.B];
                 const c = stack[base + instr.C];
+                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
 
-                const res = (b.asInteger() catch 0) - (c.asInteger() catch 0);
+                const res = (b.asInteger() catch unreachable) - (c.asInteger() catch unreachable);
                 stack[base + instr.A] = Value.integer(res);
             },
             .MUL => {
                 // R[A] = R[B] * R[C]
                 const b = stack[base + instr.B];
                 const c = stack[base + instr.C];
+                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
 
-                const res = (b.asInteger() catch 0) * (c.asInteger() catch 0);
+                const res = (b.asInteger() catch unreachable) * (c.asInteger() catch unreachable);
                 stack[base + instr.A] = Value.integer(res);
             },
             .DIV => {
                 // R[A] = R[B] / R[C]
                 const b = stack[base + instr.B];
                 const c = stack[base + instr.C];
-                const c_val = c.asInteger() catch 0;
+                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
+                
+                const c_val = c.asInteger() catch unreachable;
                 if (c_val == 0) return ExecutionResult.err(.division_by_zero);
-                const res = @divTrunc(b.asInteger() catch 0, c_val);
+                const res = @divTrunc(b.asInteger() catch unreachable, c_val);
                 stack[base + instr.A] = Value.integer(res);
             },
             .LT => {
                 // R[A] = R[B] < R[C]
                 const b = stack[base + instr.B];
                 const c = stack[base + instr.C];
+                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
 
-                const res = (b.asInteger() catch 0) < (c.asInteger() catch 0);
+                const res = (b.asInteger() catch unreachable) < (c.asInteger() catch unreachable);
                 stack[base + instr.A] = Value.boolean(res);
             },
             .GT => {
                 // R[A] = R[B] > R[C]
                 const b = stack[base + instr.B];
                 const c = stack[base + instr.C];
+                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
 
-                const res = (b.asInteger() catch 0) > (c.asInteger() catch 0);
+                const res = (b.asInteger() catch unreachable) > (c.asInteger() catch unreachable);
                 stack[base + instr.A] = Value.boolean(res);
             },
             .EQ => {
@@ -276,6 +285,32 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const b = stack[base + instr.B];
                 const c = stack[base + instr.C];
                 stack[base + instr.A] = Value.boolean(b.equals(c));
+            },
+            .JMP => {
+                ip += instr.getBx();
+            },
+            .JNTUP => {
+                const val = stack[base + instr.A];
+                if (!val.isPointer()) {
+                    ip += @as(usize, instr.C) * 4;
+                } else {
+                    const obj = val.asPointer() catch unreachable;
+                    if (obj.kind != .tuple) {
+                        ip += @as(usize, instr.C) * 4;
+                    } else {
+                        const elems = Tuple.slice(obj);
+                        if (elems.len != instr.B) {
+                            ip += @as(usize, instr.C) * 4;
+                        }
+                    }
+                }
+            },
+            .JNEQ => {
+                const a = stack[base + instr.A];
+                const b = stack[base + instr.B];
+                if (!a.equals(b)) {
+                    ip += @as(usize, instr.C) * 4;
+                }
             },
             .JF => {
                 // JUMP if R(A) is false
@@ -331,9 +366,12 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const target_obj = target_val.asPointer() catch return ExecutionResult.err(.invalid_instruction);
                 if (target_obj.kind != .tuple) return ExecutionResult.err(.invalid_instruction);
                 const elems = Tuple.slice(target_obj);
-                const idx = instr.C;
-                if (idx >= elems.len) return ExecutionResult.err(.invalid_instruction);
-                stack[base + instr.A] = elems[idx];
+                
+                const idx_val = stack[base + instr.C];
+                const idx = idx_val.asInteger() catch return ExecutionResult.err(.invalid_instruction);
+                if (idx < 0 or idx >= elems.len) return ExecutionResult.err(.invalid_instruction);
+
+                stack[base + instr.A] = elems[@intCast(idx)];
             },
             .TAILCALL => {
                 const closure_idx = base + instr.A;
@@ -346,7 +384,8 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
 
                 if (proc.stack.items.len < min_stack_len) {
                     const old_len = proc.stack.items.len;
-                    proc.stack.resize(proc.allocator, min_stack_len) catch
+                    const target_len = @max(min_stack_len, old_len + 128); // chunk resizing
+                    proc.stack.resize(proc.allocator, target_len) catch
                         return ExecutionResult.err(.out_of_memory);
                     for (proc.stack.items[old_len..]) |*slot| slot.* = Value.nil();
                 }
@@ -389,7 +428,8 @@ pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
                 const min_stack_len = new_base + Function.getMaxRegs(callee_func);
                 if (proc.stack.items.len < min_stack_len) {
                     const old_len = proc.stack.items.len;
-                    proc.stack.resize(proc.allocator, min_stack_len) catch
+                    const target_len = @max(min_stack_len, old_len + 128); // chunk resizing
+                    proc.stack.resize(proc.allocator, target_len) catch
                         return ExecutionResult.err(.out_of_memory);
                     for (proc.stack.items[old_len..]) |*slot| slot.* = Value.nil();
                 }

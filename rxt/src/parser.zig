@@ -5,6 +5,17 @@ const ast = @import("ast.zig");
 
 const log = std.log.scoped(.parser);
 
+pub const ParseError = error{
+    UnknownDeclaration,
+    ParseError,
+    UnknownInstruction,
+    UnknownExpression,
+    InvalidTupleIndex,
+    InvalidTupleIndexType,
+    ExpectedValue,
+    UnknownVariable,
+} || std.fmt.ParseIntError || std.mem.Allocator.Error;
+
 pub const Parser = struct {
     lexer: Lexer,
     curToken: Token,
@@ -124,12 +135,15 @@ pub const Parser = struct {
                 .expr = .{ .self = {} },
             },
             .keyword_spawn => blk: {
-                const target = try self.parseRValue();
-                var args: std.ArrayList(ast.RValue) = .empty;
-                errdefer args.deinit(allocator);
+                const target = try self.parseExpressionBox(allocator);
+                var args: std.ArrayList(ast.Expression) = .empty;
+                errdefer {
+                    for (args.items) |*arg| arg.deinit(allocator);
+                    args.deinit(allocator);
+                }
 
                 while (!self.check(.r_paren) and !self.check(.eof)) {
-                    try args.append(allocator, try self.parseRValue());
+                    try args.append(allocator, try self.parseMaybeNestedExpression(allocator));
                 }
 
                 break :blk .{
@@ -144,11 +158,14 @@ pub const Parser = struct {
             .keyword_call, .keyword_tail_call => blk: {
                 const is_tail = tag == .keyword_tail_call;
                 const target = try self.parseIdentifier();
-                var args: std.ArrayList(ast.RValue) = .empty;
-                errdefer args.deinit(allocator);
+                var args: std.ArrayList(ast.Expression) = .empty;
+                errdefer {
+                    for (args.items) |*arg| arg.deinit(allocator);
+                    args.deinit(allocator);
+                }
 
                 while (!self.check(.r_paren) and !self.check(.eof)) {
-                    const arg = try self.parseRValue();
+                    const arg = try self.parseMaybeNestedExpression(allocator);
                     try args.append(allocator, arg);
                 }
 
@@ -221,7 +238,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn parseExpression(self: *Parser, allocator: std.mem.Allocator) !ast.Expression {
+    fn parseExpression(self: *Parser, allocator: std.mem.Allocator) ParseError!ast.Expression {
         try self.consume(.l_paren, "Expected '(' to start expresion");
 
         const tag = self.curToken.tag;
@@ -231,11 +248,14 @@ pub const Parser = struct {
             .keyword_call, .keyword_tail_call => bkl: {
                 const is_tail = tag == .keyword_tail_call;
                 const target = try self.parseIdentifier();
-                var args: std.ArrayList(ast.RValue) = .empty;
-                errdefer args.deinit(allocator);
+                var args: std.ArrayList(ast.Expression) = .empty;
+                errdefer {
+                    for (args.items) |*arg| arg.deinit(allocator);
+                    args.deinit(allocator);
+                }
 
                 while (!self.check(.r_paren) and !self.check(.eof)) {
-                    try args.append(allocator, try self.parseRValue());
+                    try args.append(allocator, try self.parseMaybeNestedExpression(allocator));
                 }
 
                 break :bkl if (is_tail) .{ .tail_call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } } else .{ .call = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
@@ -243,12 +263,15 @@ pub const Parser = struct {
             .keyword_recv => .{ .recv = {} },
             .keyword_self => .{ .self = {} },
             .keyword_spawn => blk: {
-                const target = try self.parseRValue();
-                var args: std.ArrayList(ast.RValue) = .empty;
-                errdefer args.deinit(allocator);
+                const target = try self.parseExpressionBox(allocator);
+                var args: std.ArrayList(ast.Expression) = .empty;
+                errdefer {
+                    for (args.items) |*arg| arg.deinit(allocator);
+                    args.deinit(allocator);
+                }
 
                 while (!self.check(.r_paren) and !self.check(.eof)) {
-                    try args.append(allocator, try self.parseRValue());
+                    try args.append(allocator, try self.parseMaybeNestedExpression(allocator));
                 }
 
                 break :blk .{ .spawn = .{ .target = target, .args = try args.toOwnedSlice(allocator) } };
@@ -263,8 +286,8 @@ pub const Parser = struct {
                     .keyword_eq => .eq,
                     else => unreachable,
                 };
-                const lhs = try self.parseRValue();
-                const rhs = try self.parseRValue();
+                const lhs = try self.parseExpressionBox(allocator);
+                const rhs = try self.parseExpressionBox(allocator);
                 break :blk .{ .binary = .{
                     .op = op,
                     .lhs = lhs,
@@ -272,18 +295,21 @@ pub const Parser = struct {
                 } };
             },
             .keyword_tuple => blk: {
-                var elements: std.ArrayList(ast.RValue) = .empty;
-                errdefer elements.deinit(allocator);
+                var elements: std.ArrayList(ast.Expression) = .empty;
+                errdefer {
+                    for (elements.items) |*el| el.deinit(allocator);
+                    elements.deinit(allocator);
+                }
 
                 while (!self.check(.r_paren) and !self.check(.eof)) {
-                    try elements.append(allocator, try self.parseRValue());
+                    try elements.append(allocator, try self.parseMaybeNestedExpression(allocator));
                 }
 
                 break :blk .{ .tuple = .{ .elements = try elements.toOwnedSlice(allocator) } };
             },
             .keyword_tuple_get => blk: {
-                const target = try self.parseRValue();
-                const index = try self.parseRValue();
+                const target = try self.parseExpressionBox(allocator);
+                const index = try self.parseExpressionBox(allocator);
                 break :blk .{ .tuple_get = .{ .target = target, .index = index } };
             },
             else => {
@@ -297,7 +323,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseRValue(self: *Parser) !ast.RValue {
+    fn parseRValue(self: *Parser) ParseError!ast.RValue {
         if (self.check(.string_literal)) {
             const rawToken = self.lexer.getTokenStr(self.curToken);
             const content = rawToken[1 .. rawToken.len - 1]; // remove '"'
@@ -322,6 +348,20 @@ pub const Parser = struct {
             return .{ .Val = .{ .integer = value } };
         }
         return error.ExpectedValue;
+    }
+    
+    fn parseExpressionBox(self: *Parser, allocator: std.mem.Allocator) ParseError!*ast.Expression {
+        const box = allocator.create(ast.Expression) catch return error.OutOfMemory;
+        box.* = try self.parseMaybeNestedExpression(allocator);
+        return box;
+    }
+
+    fn parseMaybeNestedExpression(self: *Parser, allocator: std.mem.Allocator) ParseError!ast.Expression {
+        if (self.check(.l_paren)) {
+            return try self.parseExpression(allocator);
+        } else {
+            return .{ .val = try self.parseRValue() };
+        }
     }
 
     fn parseLValue(self: *Parser) !ast.LValue {
@@ -349,7 +389,7 @@ pub const Parser = struct {
             _ = self.advance();
             return;
         }
-        log.err("Parse Error: {s} Got: {any}\n", .{ msg, self.curToken.tag }); //TODO: print location
+        log.err("Parse Error at line {d}:{d}: {s} Got: {any}\n", .{ self.curToken.line, self.curToken.lineOffset, msg, self.curToken.tag });
         return error.ParseError;
     }
     fn match(self: *Parser, tag: Token.Tag) bool {

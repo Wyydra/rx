@@ -126,8 +126,8 @@ pub const Assembler = struct {
         try self.emit(.CALL, closure_reg, count_reg, 0);
     }
 
-    pub fn getTuple(self: *Assembler, dest_reg: u8, target_reg: u8, index: u8) !void {
-        try self.emit(.GETTUPLE, dest_reg, target_reg, index);
+    pub fn getTuple(self: *Assembler, dest_reg: u8, target_reg: u8, index_reg: u8) !void {
+        try self.emit(.GETTUPLE, dest_reg, target_reg, index_reg);
     }
 
     pub fn tailCall(self: *Assembler, closure_reg: u8, count_reg: u8) !void {

@@ -31,6 +31,7 @@ pub const Process = struct {
     heap: *Heap,
 
     mailbox: Mailbox,
+    mutex: std.Io.Mutex,
 
     stack: std.ArrayList(Value),
     frames: std.ArrayList(CallFrame),
@@ -38,17 +39,19 @@ pub const Process = struct {
     saved_ip: usize,
 
     allocator: std.mem.Allocator,
+    io: std.Io,
 
     const INITIAL_STACK_SIZE: usize = 16;
     const INITIAL_FRAME_CAPACITY: usize = 8;
 
-    pub fn init(allocator: std.mem.Allocator, pid: ActorId, main_func: *HeapObject, args: []const Value) !*Process {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, pid: ActorId, main_func: *HeapObject, args: []const Value) !*Process {
         std.debug.assert(main_func.kind == .function);
         const self = try allocator.create(Process);
 
         self.node = .{ .prev = null, .next = null };
         self.pid = pid;
-        self.mailbox = try Mailbox.init(allocator);
+        self.mailbox = try Mailbox.init(allocator, io);
+        self.mutex = std.Io.Mutex.init;
 
         self.heap = try allocator.create(Heap); // TODO: right way to do this?
         self.heap.* = try Heap.init(allocator, Heap.DEFAULT_SIZE);
@@ -58,6 +61,7 @@ pub const Process = struct {
         self.saved_ip = 0;
 
         self.allocator = allocator;
+        self.io = io;
 
         const min_stack_len = 1 + Function.getMaxRegs(main_func);
         const max_initial_stack = @max(@max(INITIAL_STACK_SIZE, args.len + 1), min_stack_len); // +1 because closure is index 0
@@ -84,31 +88,45 @@ pub const Process = struct {
     }
 
     pub fn deinit(self: *Process, sched: *Scheduler) void {
+        _ = sched;
+        self.mailbox.deinit();
         self.stack.deinit(self.allocator);
         self.frames.deinit(self.allocator);
-        self.mailbox.deinit(self.allocator, sched.io);
         self.heap.deinit();
         self.allocator.destroy(self.heap);
         self.allocator.destroy(self);
     }
 
     pub fn push(self: *Process, msg: Value, sched: *Scheduler) !void {
-        // We must perform a deep-copy of the value so ownership is transferred to the receiving Process.
-        const copied_msg = try self.heap.deepCopyValue(msg);
+        // We MUST lock the heap to perform the deep copy because the heap is NOT thread-safe.
+        self.mutex.lockUncancelable(self.io);
+        const copied_msg = self.heap.deepCopyValue(msg) catch |err| {
+            self.mutex.unlock(self.io);
+            return err;
+        };
+        self.mutex.unlock(self.io);
 
-        self.mailbox.put(sched.io, copied_msg);
+        // Mailbox push is lock-free and safe to do outside the process mutex.
+        try self.mailbox.put(copied_msg);
 
         // Notify the scheduler to wake up this process if it's currently waiting.
         if (self.status == .waiting) {
-            self.status = .running;
-            sched.waiting_queue.remove(&self.node);
-            sched.run_queue.append(&self.node);
-            sched.io_event.set(sched.io); // Also wake the scheduler loop if sleeping
+            self.mutex.lockUncancelable(self.io);
+            defer self.mutex.unlock(self.io);
+            if (self.status == .waiting) {
+                self.status = .running;
+                sched.mutex.lockUncancelable(sched.io);
+                sched.waiting_queue.remove(&self.node);
+                sched.run_queue.push(self) catch @panic("OOM in run_queue");
+                sched.io_event.set(sched.io);
+                sched.mutex.unlock(sched.io);
+            }
         }
     }
 
-    pub fn pop(self: *Process, sched: *Scheduler) ?Value {
-        return self.mailbox.get(sched.io);
+    pub fn pop(self: *Process, io: std.Io) !?Value {
+        _ = io;
+        return self.mailbox.get();
     }
 
     pub fn collectGarbage(self: *Process) !void {
@@ -132,9 +150,21 @@ pub const Process = struct {
             frame.closure = try heap.copyObject(frame.closure);
         }
 
-        for (self.mailbox.buffer) |*val| {
-            if (!val.isNil()) {
-                try heap.copyValue(val);
+        // We MUST lock during GC because even if the mailbox is lock-free,
+        // a concurrent `push` would call `deepCopyValue` which modifies the heap
+        // while we are moving objects!
+        // We MUST lock during GC because even if the mailbox is lock-free,
+        // a concurrent `push` would call `deepCopyValue` which modifies the heap
+        // while we are moving objects!
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+
+        if (!self.mailbox.isEmpty()) {
+            var mailbox_it = self.mailbox.iterator();
+            while (mailbox_it.next()) |data_ptr| {
+                if (!data_ptr.isNil()) {
+                    try heap.copyValue(data_ptr);
+                }
             }
         }
 
@@ -228,12 +258,8 @@ pub const Process = struct {
 
     fn receiveImpl(ptr: *anyopaque, msg: Value, sched: *Scheduler) bool {
         const self = @as(*Process, @ptrCast(@alignCast(ptr)));
-        self.push(msg, sched) catch unreachable;
-        if (self.status == .waiting) {
-            self.status = .running;
-            return true;
-        }
-
+        // push handles moving from waiting_queue to run_queue safely
+        self.push(msg, sched) catch return false;
         return false;
     }
 
