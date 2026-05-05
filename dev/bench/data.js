@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772483195022,
+  "lastUpdate": 1778020019173,
   "repoUrl": "https://github.com/Wyydra/rx",
   "entries": {
     "Benchmark": [
@@ -204,6 +204,54 @@ window.BENCHMARK_DATA = {
             "value": 0.4793,
             "unit": "ms",
             "extra": "mean=0.5045ms σ=0.0578ms n=50"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "paulchopinet@gmail.com",
+            "name": "Wyydra",
+            "username": "Wyydra"
+          },
+          "committer": {
+            "email": "paulchopinet@gmail.com",
+            "name": "Wyydra",
+            "username": "Wyydra"
+          },
+          "distinct": true,
+          "id": "1c327eaf18798fe728a4bdf427d49d7e96f69d00",
+          "message": "refactor: implement heap scanning and unify Value type system with improved object casting and validation",
+          "timestamp": "2026-05-06T00:24:29+02:00",
+          "tree_id": "d819dce96b591237613cb1e6640500bdc1dd7b41",
+          "url": "https://github.com/Wyydra/rx/commit/1c327eaf18798fe728a4bdf427d49d7e96f69d00"
+        },
+        "date": 1778020018656,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "ackermann/rxt",
+            "value": 34.5183,
+            "unit": "ms",
+            "extra": "mean=34.5538ms σ=0.2005ms n=50"
+          },
+          {
+            "name": "fib/rxt",
+            "value": 122.3105,
+            "unit": "ms",
+            "extra": "mean=124.3762ms σ=6.9024ms n=50"
+          },
+          {
+            "name": "greet/rxt",
+            "value": 0.8131,
+            "unit": "ms",
+            "extra": "mean=0.8209ms σ=0.0455ms n=50"
+          },
+          {
+            "name": "tailcall/rxt",
+            "value": 357.93,
+            "unit": "ms",
+            "extra": "mean=360.4568ms σ=8.3883ms n=50"
           }
         ]
       }
