@@ -1,0 +1,87 @@
+(module
+  (func $_start ()
+    (let $n_many 10)
+    (let $n_ring 10)
+    (let $n_ping 100)
+    (let $me (self))
+    
+    (print "--- RX Stress Test (High Concurrency) ---")
+    
+    (print "Test 1: Many-to-One Spawning")
+    (call $spawn_many $n_many $me)
+    (call $wait_many $n_many)
+    (print "Test 1 Passed.")
+
+    (print "Test 2: Sequential Chain Spawning")
+    (let $chain_head (spawn $chain_node $n_ring $me))
+    (send $chain_head :go)
+    (recv)
+    (print "Test 2 Passed.")
+
+    (print "Test 3: Tight Ping-Pong")
+    (let $pinger (spawn $ping_actor))
+    (let $ponger (spawn $ping_actor))
+    (send $pinger (tuple :start $n_ping $ponger $me))
+    (recv)
+    (print "Test 3 Passed.")
+
+    (print "All Stress Tests Completed Successfully.")
+  )
+
+  ; --- Test 1 Helpers ---
+  (func $spawn_many ($n $parent)
+    (if (eq $n 0) (return 0))
+    (spawn $worker $parent $n)
+    (tail_call $spawn_many (sub $n 1) $parent)
+  )
+
+  (func $worker ($parent $id)
+    (send $parent (tuple :done $id))
+  )
+
+  (func $wait_many ($n)
+    (if (eq $n 0) (return 0))
+    (recv)
+    (tail_call $wait_many (sub $n 1))
+  )
+
+  ; --- Test 2 Helpers ---
+  (func $chain_node ($rem $boss)
+    (let $msg (recv))
+    (if (eq $rem 0)
+      (send $boss :done)
+      (return 0)
+    )
+    (let $next (spawn $chain_node (sub $rem 1) $boss))
+    (send $next :go)
+  )
+
+  ; --- Test 3 Helpers ---
+  (func $ping_actor ()
+    (let $msg (recv))
+    (if (eq $msg :stop) (return 0))
+
+    (let $type (tuple_get $msg 0))
+    
+    (if (eq $type :start)
+      (let $count (tuple_get $msg 1))
+      (let $other (tuple_get $msg 2))
+      (let $boss  (tuple_get $msg 3))
+      (send $other (tuple :ping (sub $count 1) (self) $boss))
+      (tail_call $ping_actor)
+    )
+
+    (if (eq $type :ping)
+      (let $count  (tuple_get $msg 1))
+      (let $sender (tuple_get $msg 2))
+      (let $boss   (tuple_get $msg 3))
+      (if (lt $count 0)
+        (send $boss :done)
+        (send $sender :stop)
+        (return 0)
+      )
+      (send $sender (tuple :ping (sub $count 1) (self) $boss))
+      (tail_call $ping_actor)
+    )
+  )
+)

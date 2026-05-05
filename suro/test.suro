@@ -1,0 +1,45 @@
+module TestModule
+
+; Bindings
+x = 42
+name = "Suro"
+status = :active
+negative_number = -100
+
+; A compound data type (like a struct/record)
+player = [name: "Rox", health: 100, position: [10, 20]]
+
+; A sum type / tagged tuple
+event = [:key_down, :left]
+
+; Function definition
+add = (a, b) a + b
+greet = (name) "Hello, " + name
+
+; Function call
+sum = add(5, 10)
+greeting = greet("World")
+
+; UFCS (Uniform Function Call Syntax)
+eleven = 10:add(1) ; equivalent to add(10, 1)
+
+; Blocks and local scope
+result = {
+    a = 5
+    b = 10
+    a + b ; this is the return value of the block
+}
+
+; Pattern matching
+match_result = match event with
+| [:key_down, :left]  -> "Player moved left"
+| [:key_down, :right] -> "Player moved right"
+| [:key_up, _]        -> "Player released a key"
+| _                   -> "Unknown event"
+
+
+; Destructuring bind
+[:coords, cx, cy] = [:coords, 50, 100]
+
+; Actor-style message (just a tuple)
+msg = [:register, self(), :rect, 400, 300]
