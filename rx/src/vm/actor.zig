@@ -42,31 +42,3 @@ pub const ActorId = packed struct(u32) {
     }
 };
 
-pub const Actor = union(enum) {
-    process: *Process,
-    port: *Port,
-
-    pub fn send(self: Actor, msg: Value, sched: *Scheduler) void {
-        switch (self) {
-            .process => |proc| {
-                // queue it
-                proc.pushMessage(msg) catch {};
-            },
-            .port => |p| {
-                // execute immediately
-                (p.handler)(p.context, msg, sched);
-            },
-        }
-    }
-
-    pub fn deinit(self: Actor, allocator: std.mem.Allocator) void {
-        switch (self) {
-            .process => |proc| {
-                proc.deinit(allocator); // Defined in process.zig
-            },
-            .port => {
-                // TODO: .cleanup() fn ptr to port struct
-            },
-        }
-    }
-};

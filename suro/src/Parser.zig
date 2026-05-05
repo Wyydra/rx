@@ -61,7 +61,7 @@ fn consume(self: *Parser, tag: Token.Tag, comptime msg: []const u8) !void {
 
 pub fn parseModule(self: *Parser) !ast.Module {
     var exprs: std.ArrayList(ast.Expr) = .empty;
-    errdefer exprs.deinit(self.allocator); // TODO: deep deinit
+    errdefer exprs.deinit(self.allocator);
 
     var moduleName: ?[]const u8 = null;
 
@@ -83,6 +83,7 @@ pub fn parseModule(self: *Parser) !ast.Module {
 
 fn parseTopLevelExpr(self: *Parser) !ast.Expr {
     const pat = try self.parsePattern();
+    log.debug("{any}\n", .{pat});
     try self.consume(.equal, "Expected '=' in binding");
     const value = try self.parseExpr();
 

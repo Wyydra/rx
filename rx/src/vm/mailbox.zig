@@ -44,6 +44,12 @@ pub const Mailbox = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        const freeValue = @import("../memory/value.zig").freeValue;
+        var it_msg = self.iterator();
+        while (it_msg.next()) |val_ptr| {
+            freeValue(self.allocator, val_ptr.*);
+        }
+
         var it: ?*Chunk = self.tail;
         while (it) |chunk| {
             const next = chunk.next.load(.acquire);

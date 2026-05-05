@@ -36,6 +36,14 @@ pub const ExecutionResult = packed struct(u32) {
         type_error = 8,
     };
 
+    pub fn fromValueErr(v_err: Value.Error) ErrorCode {
+        return switch (v_err) {
+            error.TypeError => .type_error,
+            error.DivisionByZero => .division_by_zero,
+            error.IntegerOverflow => .type_error, // TODO
+        };
+    }
+
     pub const WaitReason = enum(u6) {
         io_read = 1,
         io_write = 2,
@@ -109,360 +117,302 @@ pub const ExecutionResult = packed struct(u32) {
     }
 };
 
-pub fn run(proc: *Process, limit: usize, scheduler: anytype) ExecutionResult {
-    var budget = limit;
+pub const Environment = struct {
+    ptr: *anyopaque,
+    vtable: *const VTable,
 
-    var stack = proc.stack.items;
-    var frames = proc.frames.items;
+    pub const VTable = struct {
+        send: *const fn (ptr: *anyopaque, target: ActorId, msg: Value) void,
+        spawn: *const fn (ptr: *anyopaque, func: *HeapObject, args: []const Value) anyerror!ActorId,
+        resolve: *const fn (ptr: *anyopaque, name: []const u8) ?ActorId,
+    };
 
-    var frame_idx = proc.frames.items.len - 1;
-    var frame = &frames[frame_idx];
-
-    var closure = frame.closure;
-    var function = Closure.getFunction(closure);
-    var code = Function.getCode(function);
-    var constants = Function.getConstants(function);
-
-    var ip = proc.saved_ip; // resume point — set by preemption or 0 for a fresh start
-    var base = frame.base;
-
-    while (budget > 0) {
-        if (ip + 4 > code.len) {
-            return ExecutionResult.terminated(0);
-        }
-
-        const instr_ptr: *const [4]u8 = @ptrCast(code.ptr + ip);
-        const raw_instr = std.mem.readInt(u32, instr_ptr, .little);
-        const instr = Instruction.decode(raw_instr);
-        ip += 4;
-
-        // log.debug("IP: {d} | Base: {d} | ", .{ ip, base });
-        // var limit_reg: usize = base + 8; // default window size, you can adjust
-        // if (limit_reg > stack.len) limit_reg = stack.len;
-        // for (stack[base..limit_reg], 0..) |v, i| {
-        //     if (!v.isNil()) {
-        //         log.debug("R{d}={f}, ", .{ i, v });
-        //     }
-        // }
-        // if (limit_reg < stack.len) {
-        //     log.debug("...", .{});
-        // }
-        // log.debug("\n{f} ", .{instr});
-        // log.debug("\n ", .{});
-
-        switch (instr.getOpcode()) {
-            .MOVE => {
-                const src_val = stack[base + instr.A];
-                stack[base + instr.B] = src_val;
-            },
-            .PRINT => {
-                const val = stack[base + instr.A];
-                std.debug.print("> {f}\n", .{val});
-            },
-            .SEND => {
-                // SEND R(A), R(B)
-                // R(A) = Target PID (Integer) or Name (String)
-                // R(B) = Message Payload
-                const id_val = stack[base + instr.A];
-                const msg_val = stack[base + instr.B];
-
-                const target = if (id_val.isInteger()) blk: {
-                    break :blk ActorId.fromInt(@intCast(id_val.asInteger() catch unreachable));
-                } else if (id_val.isString() or id_val.isAtom()) blk: {
-                    const name = if (id_val.isString()) id_val.asString() catch unreachable else id_val.asAtom() catch unreachable;
-                    if (scheduler.system.resolve(name)) |pid| {
-                        break :blk pid;
-                    } else {
-                        return ExecutionResult.err(.unknown_actor);
-                    }
-                } else {
-                    return ExecutionResult.err(.invalid_instruction);
-                };
-
-                scheduler.send(target, msg_val);
-            },
-            .RECV => {
-                if (proc.pop(scheduler.io) catch null) |msg| {
-                    stack[base + instr.A] = msg;
-                } else {
-                    // rewind //TODO: rm magic number
-                    ip -= 4;
-                    proc.saved_ip = ip;
-                    return ExecutionResult.waiting(.message, 0);
-                }
-            },
-            .SELF => {
-                // R(A) = my own PID as integer
-                stack[base + instr.A] = Value.integer(@intCast(proc.pid.toInt()));
-            },
-            .SPAWN => {
-                // SPAWN R(A) R(B) C
-                // R(B) = Closure to spawn
-                // C = Number of arguments following R(B)
-                // R(A) = PID of new process (as integer)
-                const closure_idx = base + instr.B;
-                const closure_val = stack[closure_idx];
-                const closure_obj = closure_val.asClosure() catch return ExecutionResult.err(.invalid_instruction);
-                const func_obj = Closure.getFunction(closure_obj);
-
-                const args_count = instr.C;
-                const args = stack[closure_idx + 1 .. closure_idx + 1 + args_count];
-
-                const new_pid = scheduler.spawn(func_obj, args) catch return ExecutionResult.err(.out_of_memory);
-                stack[base + instr.A] = Value.integer(@intCast(new_pid.toInt()));
-            },
-            .LOADK => {
-                // R[A] = Constants[Bx]
-                const val = constants[instr.getBx()];
-                stack[base + instr.A] = val;
-            },
-            .CLOSURE => {
-                const func_val = constants[instr.getBx()];
-                const func_obj = func_val.asFunction() catch return ExecutionResult.err(.invalid_instruction);
-                const closure_obj = proc.alloc(.closure, @sizeOf(u64)) catch return ExecutionResult.err(.out_of_memory);
-                const func_slot = @as(**HeapObject, @ptrCast(@alignCast(@as([*]u8, @ptrCast(closure_obj)) + @sizeOf(HeapObject))));
-                func_slot.* = func_obj;
-                stack[base + instr.A] = Value.pointer(closure_obj);
-            },
-            .ADD => {
-                // R[A] = R[B] + R[C]
-                const b = stack[base + instr.B];
-                const c = stack[base + instr.C];
-                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
-
-                const res = (b.asInteger() catch unreachable) + (c.asInteger() catch unreachable);
-                stack[base + instr.A] = Value.integer(res);
-            },
-            .SUB => {
-                // R[A] = R[B] - R[C]
-                const b = stack[base + instr.B];
-                const c = stack[base + instr.C];
-                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
-
-                const res = (b.asInteger() catch unreachable) - (c.asInteger() catch unreachable);
-                stack[base + instr.A] = Value.integer(res);
-            },
-            .MUL => {
-                // R[A] = R[B] * R[C]
-                const b = stack[base + instr.B];
-                const c = stack[base + instr.C];
-                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
-
-                const res = (b.asInteger() catch unreachable) * (c.asInteger() catch unreachable);
-                stack[base + instr.A] = Value.integer(res);
-            },
-            .DIV => {
-                // R[A] = R[B] / R[C]
-                const b = stack[base + instr.B];
-                const c = stack[base + instr.C];
-                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
-                
-                const c_val = c.asInteger() catch unreachable;
-                if (c_val == 0) return ExecutionResult.err(.division_by_zero);
-                const res = @divTrunc(b.asInteger() catch unreachable, c_val);
-                stack[base + instr.A] = Value.integer(res);
-            },
-            .LT => {
-                // R[A] = R[B] < R[C]
-                const b = stack[base + instr.B];
-                const c = stack[base + instr.C];
-                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
-
-                const res = (b.asInteger() catch unreachable) < (c.asInteger() catch unreachable);
-                stack[base + instr.A] = Value.boolean(res);
-            },
-            .GT => {
-                // R[A] = R[B] > R[C]
-                const b = stack[base + instr.B];
-                const c = stack[base + instr.C];
-                if (!b.isInteger() or !c.isInteger()) return ExecutionResult.err(.type_error);
-
-                const res = (b.asInteger() catch unreachable) > (c.asInteger() catch unreachable);
-                stack[base + instr.A] = Value.boolean(res);
-            },
-            .EQ => {
-                // R[A] = R[B] == R[C]
-                const b = stack[base + instr.B];
-                const c = stack[base + instr.C];
-                stack[base + instr.A] = Value.boolean(b.equals(c));
-            },
-            .JMP => {
-                ip += instr.getBx();
-            },
-            .JNTUP => {
-                const val = stack[base + instr.A];
-                if (!val.isPointer()) {
-                    ip += @as(usize, instr.C) * 4;
-                } else {
-                    const obj = val.asPointer() catch unreachable;
-                    if (obj.kind != .tuple) {
-                        ip += @as(usize, instr.C) * 4;
-                    } else {
-                        const elems = Tuple.slice(obj);
-                        if (elems.len != instr.B) {
-                            ip += @as(usize, instr.C) * 4;
-                        }
-                    }
-                }
-            },
-            .JNEQ => {
-                const a = stack[base + instr.A];
-                const b = stack[base + instr.B];
-                if (!a.equals(b)) {
-                    ip += @as(usize, instr.C) * 4;
-                }
-            },
-            .JF => {
-                // JUMP if R(A) is false
-                const a = stack[base + instr.A];
-
-                if (a.asBoolean()) |cond| {
-                    if (!cond) ip += instr.getBx();
-                } else |_| {
-                    return ExecutionResult.err(.invalid_instruction);
-                }
-            },
-            .RET => {
-                // RETURN A
-                const result = stack[base + instr.A];
-
-                const popped_frame = proc.frames.pop() orelse return ExecutionResult.err(.stack_underflow);
-
-                if (proc.frames.items.len == 0) {
-                    return ExecutionResult.terminated(0);
-                }
-
-                // restore parent
-                frames = proc.frames.items;
-                frame_idx -= 1;
-                frame = &frames[frame_idx];
-
-                const caller_base = frame.base;
-
-                // return value
-                stack[base - 1] = result;
-
-                base = caller_base;
-                ip = popped_frame.caller_ip; // restore to CALLER's original continuation
-                proc.saved_ip = ip; // keep proc.saved_ip in sync for preemption
-
-                closure = frame.closure;
-                function = Closure.getFunction(closure);
-                code = Function.getCode(function);
-                constants = Function.getConstants(function);
-            },
-            .NEWTUPLE => {
-                const count = instr.B;
-                const obj = proc.alloc(.tuple, count * @sizeOf(Value)) catch return ExecutionResult.err(.out_of_memory);
-                // Copier les registres consécutifs (stack[base+A+1]...) dans le payload
-                const elems = Tuple.slice(obj);
-                for (0..count) |i| {
-                    elems[i] = stack[base + instr.A + 1 + i];
-                }
-                stack[base + instr.A] = Value.pointer(obj);
-            },
-            .GETTUPLE => {
-                const target_val = stack[base + instr.B];
-                const target_obj = target_val.asPointer() catch return ExecutionResult.err(.invalid_instruction);
-                if (target_obj.kind != .tuple) return ExecutionResult.err(.invalid_instruction);
-                const elems = Tuple.slice(target_obj);
-                
-                const idx_val = stack[base + instr.C];
-                const idx = idx_val.asInteger() catch return ExecutionResult.err(.invalid_instruction);
-                if (idx < 0 or idx >= elems.len) return ExecutionResult.err(.invalid_instruction);
-
-                stack[base + instr.A] = elems[@intCast(idx)];
-            },
-            .TAILCALL => {
-                const closure_idx = base + instr.A;
-                const closure_val = stack[closure_idx];
-                const closure_obj = closure_val.asClosure() catch return ExecutionResult.err(.invalid_instruction);
-
-                const args_count = instr.B;
-                const callee_func = Closure.getFunction(closure_obj);
-                const min_stack_len = base + Function.getMaxRegs(callee_func);
-
-                if (proc.stack.items.len < min_stack_len) {
-                    const old_len = proc.stack.items.len;
-                    const target_len = @max(min_stack_len, old_len + 128); // chunk resizing
-                    proc.stack.resize(proc.allocator, target_len) catch
-                        return ExecutionResult.err(.out_of_memory);
-                    for (proc.stack.items[old_len..]) |*slot| slot.* = Value.nil();
-                }
-                stack = proc.stack.items;
-
-                // Shift arguments downwards
-                const src_start = closure_idx + 1;
-                if (args_count > 0) {
-                    std.mem.copyForwards(Value, stack[base .. base + args_count], stack[src_start .. src_start + args_count]);
-                }
-
-                // Clear remaining register window to avoid stale leaks
-                const max_regs = Function.getMaxRegs(callee_func);
-                for (args_count..max_regs) |i| {
-                    stack[base + i] = Value.nil();
-                }
-
-                frame.closure = closure_obj;
-
-                closure = closure_obj;
-                function = Closure.getFunction(closure);
-                code = Function.getCode(function);
-                constants = Function.getConstants(function);
-                ip = 0;
-                proc.saved_ip = 0;
-            },
-            .CALL => {
-                // CALL R(A) R(B)
-                // R(A) = Closure
-                // B-1 args
-                const closure_idx = base + instr.A;
-                const closure_val = stack[closure_idx];
-
-                const closure_obj = closure_val.asClosure() catch return ExecutionResult.err(.invalid_instruction);
-
-                const new_base = closure_idx + 1;
-
-                // Ensure the stack has enough room for the new frame's register window.
-                const callee_func = Closure.getFunction(closure_obj);
-                const min_stack_len = new_base + Function.getMaxRegs(callee_func);
-                if (proc.stack.items.len < min_stack_len) {
-                    const old_len = proc.stack.items.len;
-                    const target_len = @max(min_stack_len, old_len + 128); // chunk resizing
-                    proc.stack.resize(proc.allocator, target_len) catch
-                        return ExecutionResult.err(.out_of_memory);
-                    for (proc.stack.items[old_len..]) |*slot| slot.* = Value.nil();
-                }
-                // Re-sync after the potential reallocation.
-                stack = proc.stack.items;
-
-                proc.frames.append(proc.allocator, .{
-                    .base = new_base,
-                    .caller_ip = ip, // caller's continuation (ip already past CALL)
-                    .closure = closure_obj,
-                }) catch return ExecutionResult.err(.out_of_memory);
-
-                frames = proc.frames.items;
-                frame_idx = frames.len - 1;
-                frame = &frames[frame_idx];
-
-                base = frame.base;
-
-                closure = closure_obj;
-                function = Closure.getFunction(closure);
-                code = Function.getCode(function);
-                constants = Function.getConstants(function);
-                ip = 0;
-                proc.saved_ip = 0; // callee starts fresh at ip=0
-            },
-        }
-
-        const cost = instr.getOpcode().reductionCost();
-        budget = if (cost >= budget) 0 else budget - cost;
+    pub inline fn send(self: Environment, target: ActorId, msg: Value) void {
+        self.vtable.send(self.ptr, target, msg);
     }
-    proc.saved_ip = ip; // save resume point — never touch caller_ip in frames
 
-    const used = limit - budget;
-    const val: u8 = @intCast(@min(used, 255));
-    return ExecutionResult.normal(val);
+    pub inline fn spawn(self: Environment, func: *HeapObject, args: []const Value) anyerror!ActorId {
+        return self.vtable.spawn(self.ptr, func, args);
+    }
+
+    pub inline fn resolve(self: Environment, name: []const u8) ?ActorId {
+        return self.vtable.resolve(self.ptr, name);
+    }
+};
+
+pub fn run(proc: *Process, limit: usize, env: Environment) ExecutionResult {
+    var interpreter = Interpreter{
+        .proc = proc,
+        .env = env,
+        .budget = limit,
+        .limit = limit,
+    };
+    return interpreter.run();
 }
+
+const Interpreter = struct {
+    const Self = @This();
+
+    proc: *Process,
+    env: Environment,
+    budget: usize,
+    limit: usize,
+
+    // Cached state for performance
+    ip: usize = 0,
+    base: usize = 0,
+    stack: []Value = undefined,
+    frames: []@import("process.zig").CallFrame = undefined,
+    frame_idx: usize = 0,
+    constants: []const Value = undefined,
+    code: []const u8 = undefined,
+
+    pub fn run(self: *Self) ExecutionResult {
+        self.stack = self.proc.stack.items;
+        self.frames = self.proc.frames.items;
+        self.frame_idx = self.frames.len - 1;
+        self.ip = self.proc.saved_ip;
+        self.syncFrame();
+
+        while (self.budget > 0) {
+            if (self.ip + 4 > self.code.len) {
+                return ExecutionResult.terminated(0);
+            }
+
+            const instr = Instruction.decode(std.mem.readInt(u32, @ptrCast(self.code.ptr + self.ip), .little));
+            self.ip += 4;
+
+            const op = instr.getOpcode();
+            self.dispatch(op, instr) catch |err| {
+                if (err == error.Suspend) return ExecutionResult.waiting(.message, 0);
+                return ExecutionResult.err(self.mapError(err));
+            };
+
+            const cost = op.reductionCost();
+            self.budget = if (cost >= self.budget) 0 else self.budget - cost;
+
+            // If the instruction terminated the process (RET from last frame)
+            if (self.proc.frames.items.len == 0) return ExecutionResult.terminated(0);
+        }
+
+        self.proc.saved_ip = self.ip;
+        const used = self.limit - self.budget;
+        return ExecutionResult.normal(@intCast(@min(used, 255)));
+    }
+
+    fn syncFrame(self: *Self) void {
+        const frame = &self.proc.frames.items[self.frame_idx];
+        self.base = frame.base;
+        const function = Closure.getFunction(frame.closure);
+        self.code = Function.getCode(function);
+        self.constants = Function.getConstants(function);
+    }
+
+    // --- Register Helpers ---
+    inline fn getA(self: *Self, instr: Instruction) Value {
+        return self.stack[self.base + instr.A];
+    }
+    inline fn getB(self: *Self, instr: Instruction) Value {
+        return self.stack[self.base + instr.B];
+    }
+    inline fn getC(self: *Self, instr: Instruction) Value {
+        return self.stack[self.base + instr.C];
+    }
+    inline fn getK(self: *Self, instr: Instruction) Value {
+        return self.constants[instr.getBx()];
+    }
+
+    inline fn setA(self: *Self, instr: Instruction, val: Value) void {
+        self.stack[self.base + instr.A] = val;
+    }
+    inline fn setB(self: *Self, instr: Instruction, val: Value) void {
+        self.stack[self.base + instr.B] = val;
+    }
+
+    const RunError = Value.Error || error{
+        StackUnderflow,
+        InvalidInstruction,
+        UnknownActor,
+        OutOfMemory,
+        Suspend,
+    };
+
+    fn mapError(self: *Self, err: RunError) ExecutionResult.ErrorCode {
+        _ = self;
+        return switch (err) {
+            error.TypeError => .type_error,
+            error.DivisionByZero => .division_by_zero,
+            error.IntegerOverflow => .type_error,
+            error.StackUnderflow => .stack_underflow,
+            error.InvalidInstruction => .invalid_instruction,
+            error.UnknownActor => .unknown_actor,
+            error.OutOfMemory => .out_of_memory,
+            error.Suspend => unreachable, // Handled outside
+        };
+    }
+
+    fn dispatch(self: *Self, op: @import("../bytecode/opcode.zig").Opcode, instr: Instruction) RunError!void {
+        switch (op) {
+            .MOVE => self.setB(instr, self.getA(instr)),
+            .LOADK => self.setA(instr, self.getK(instr)),
+            .PRINT => std.debug.print("> {f}\n", .{self.getA(instr)}),
+
+            .ADD => self.setA(instr, try self.getB(instr).add(self.getC(instr))),
+            .SUB => self.setA(instr, try self.getB(instr).sub(self.getC(instr))),
+            .MUL => self.setA(instr, try self.getB(instr).mul(self.getC(instr))),
+            .DIV => self.setA(instr, try self.getB(instr).div(self.getC(instr))),
+
+            .LT => self.setA(instr, Value.boolean(try self.getB(instr).lt(self.getC(instr)))),
+            .GT => self.setA(instr, Value.boolean(try self.getB(instr).gt(self.getC(instr)))),
+            .EQ => self.setA(instr, Value.boolean(self.getB(instr).equals(self.getC(instr)))),
+
+            .SEND => try self.instrSend(instr),
+            .RECV => try self.instrRecv(instr),
+            .SELF => self.setA(instr, Value.integer(@intCast(self.proc.pid.toInt()))),
+            .SPAWN => try self.instrSpawn(instr),
+
+            .CLOSURE => try self.instrClosure(instr),
+            .JMP => self.ip += instr.getBx(),
+            .JF => if (!(try self.getA(instr).asBoolean())) {
+                self.ip += instr.getBx();
+            },
+
+            .RET => try self.instrRet(instr),
+            .CALL => try self.instrCall(instr),
+            .TAILCALL => try self.instrTailCall(instr),
+
+            .NEWTUPLE => try self.instrNewTuple(instr),
+            .GETTUPLE => try self.instrGetTuple(instr),
+
+            .JNTUP => try self.instrJntup(instr),
+            .JNEQ => if (!self.getA(instr).equals(self.getB(instr))) {
+                self.ip += @as(usize, instr.C) * 4;
+            },
+        }
+    }
+
+    // --- Individual Instruction Handlers ---
+
+    fn instrSend(self: *Self, instr: Instruction) RunError!void {
+        const id_val = self.getA(instr);
+        const msg_val = self.getB(instr);
+
+        const target = if (id_val.is(.integer)) blk: {
+            break :blk ActorId.fromInt(@intCast(try id_val.asInteger()));
+        } else if (id_val.isString() or id_val.is(.atom)) blk: {
+            const name = if (id_val.isString()) try id_val.asString() else try id_val.asAtom();
+            if (self.env.resolve(name)) |pid| {
+                break :blk pid;
+            } else return error.UnknownActor;
+        } else return error.TypeError;
+
+        self.env.send(target, msg_val);
+    }
+
+    fn instrRecv(self: *Self, instr: Instruction) RunError!void {
+        if (self.proc.pop() catch null) |msg| {
+            self.setA(instr, msg);
+        } else {
+            self.ip -= 4;
+            self.proc.saved_ip = self.ip;
+            return error.Suspend;
+        }
+    }
+
+    fn instrSpawn(self: *Self, instr: Instruction) RunError!void {
+        const closure_idx = self.base + instr.B;
+        const closure_obj = try self.stack[closure_idx].asClosure();
+        const func_obj = Closure.getFunction(closure_obj);
+        const args = self.stack[closure_idx + 1 .. closure_idx + 1 + instr.C];
+        const new_pid = self.env.spawn(func_obj, args) catch return error.OutOfMemory;
+        self.setA(instr, Value.integer(@intCast(new_pid.toInt())));
+    }
+
+    fn instrClosure(self: *Self, instr: Instruction) RunError!void {
+        const func_obj = try self.getK(instr).asFunction();
+        const closure_obj = self.proc.alloc(.closure, @sizeOf(u64)) catch return error.OutOfMemory;
+        const func_slot = @as(**HeapObject, @ptrCast(@alignCast(@as([*]u8, @ptrCast(closure_obj)) + @sizeOf(HeapObject))));
+        func_slot.* = func_obj;
+        self.setA(instr, Value.pointer(closure_obj));
+    }
+
+    fn instrRet(self: *Self, instr: Instruction) RunError!void {
+        const result = self.getA(instr);
+        const popped_frame = self.proc.frames.pop() orelse return error.StackUnderflow;
+        if (self.proc.frames.items.len == 0) return;
+
+        self.frame_idx -= 1;
+        self.syncFrame();
+        self.stack[popped_frame.base - 1] = result;
+        self.ip = popped_frame.caller_ip;
+    }
+
+    fn instrCall(self: *Self, instr: Instruction) RunError!void {
+        const closure_idx = self.base + instr.A;
+        const closure_obj = try self.stack[closure_idx].asClosure();
+        const new_base = closure_idx + 1;
+        const callee_func = Closure.getFunction(closure_obj);
+
+        try self.proc.ensureStack(new_base + Function.getMaxRegs(callee_func));
+        self.stack = self.proc.stack.items;
+
+        self.proc.frames.append(self.proc.allocator, .{
+            .base = new_base,
+            .caller_ip = self.ip,
+            .closure = closure_obj,
+        }) catch return error.OutOfMemory;
+
+        self.frame_idx += 1;
+        self.ip = 0;
+        self.syncFrame();
+    }
+
+    fn instrTailCall(self: *Self, instr: Instruction) RunError!void {
+        const closure_idx = self.base + instr.A;
+        const closure_obj = try self.stack[closure_idx].asClosure();
+        const args_count = instr.B;
+        const callee_func = Closure.getFunction(closure_obj);
+
+        try self.proc.ensureStack(self.base + Function.getMaxRegs(callee_func));
+        self.stack = self.proc.stack.items;
+
+        const src_start = closure_idx + 1;
+        if (args_count > 0) {
+            std.mem.copyForwards(Value, self.stack[self.base .. self.base + args_count], self.stack[src_start .. src_start + args_count]);
+        }
+        const max_regs = Function.getMaxRegs(callee_func);
+        @memset(self.stack[self.base + args_count .. self.base + max_regs], Value.nil());
+
+        const frame = &self.proc.frames.items[self.frame_idx];
+        frame.closure = closure_obj;
+        self.ip = 0;
+        self.syncFrame();
+    }
+
+    fn instrNewTuple(self: *Self, instr: Instruction) RunError!void {
+        const count = instr.B;
+        const obj = self.proc.alloc(.tuple, count * @sizeOf(Value)) catch return error.OutOfMemory;
+        const elems = Tuple.slice(obj);
+        for (0..count) |i| elems[i] = self.stack[self.base + instr.A + 1 + i];
+        self.setA(instr, Value.pointer(obj));
+    }
+
+    fn instrGetTuple(self: *Self, instr: Instruction) RunError!void {
+        const target_obj = try self.getB(instr).asPtr();
+        if (target_obj.kind != .tuple) return error.TypeError;
+        const elems = Tuple.slice(target_obj);
+        const idx = try self.getC(instr).asInteger();
+        if (idx < 0 or idx >= elems.len) return error.InvalidInstruction;
+        self.setA(instr, elems[@intCast(idx)]);
+    }
+
+    fn instrJntup(self: *Self, instr: Instruction) RunError!void {
+        const val = self.getA(instr);
+        var match = false;
+        if (val.is(.pointer)) {
+            const obj = try val.asPtr();
+            if (obj.kind == .tuple and Tuple.getCount(obj) == instr.B) match = true;
+        }
+        if (!match) self.ip += @as(usize, instr.C) * 4;
+    }
+};

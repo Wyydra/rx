@@ -100,6 +100,17 @@ fn readText(allocator: std.mem.Allocator, val: rx.rx_value_t) ?[]const u8 {
     return null;
 }
 
+fn free_widget_def(allocator: std.mem.Allocator, def: *WidgetDef) void {
+    allocator.free(def.kind);
+    if (def.text) |t| allocator.free(t);
+    if (def.id) |id| allocator.free(id);
+    for (def.children.items) |child| {
+        free_widget_def(allocator, child);
+    }
+    def.children.deinit(allocator);
+    allocator.destroy(def);
+}
+
 fn parse_widget(allocator: std.mem.Allocator, sched: *rx.rx_scheduler_t, val: rx.rx_value_t) ?*WidgetDef {
     if (rx.rx_tuple_len(val) == 0) return null;
     const kind_val = rx.rx_tuple_get(val, 0);
@@ -122,7 +133,7 @@ fn parse_widget(allocator: std.mem.Allocator, sched: *rx.rx_scheduler_t, val: rx
         // (tuple "button" <label> <click_id>)
         def.text = readText(allocator, rx.rx_tuple_get(val, 1));
         def.id = readText(allocator, rx.rx_tuple_get(val, 2));
-    } else if (std.mem.eql(u8, def.kind, "vbox") or std.mem.eql(u8, def.kind, "hbox")) {
+    } else if (rx.rx_val_eq_str(kind_val, "vbox") or rx.rx_val_eq_str(kind_val, "hbox")) {
         var i: u32 = 1;
         while (i < rx.rx_tuple_len(val)) : (i += 1) {
             if (parse_widget(allocator, sched, rx.rx_tuple_get(val, i))) |child|
@@ -176,7 +187,10 @@ fn build_gtk_widget(allocator: std.mem.Allocator, sched: *rx.rx_scheduler_t, def
         gtk.gtk_widget_set_halign(lbl, 2); // GTK_ALIGN_END
         // Register named labels so `update` can reach them in O(1).
         if (def.id) |id| {
-            widget_registry.put(allocator, id, lbl) catch {};
+            const key = allocator.dupe(u8, id) catch return lbl;
+            widget_registry.put(allocator, key, lbl) catch {
+                allocator.free(key);
+            };
         }
         return lbl;
     } else if (std.mem.eql(u8, def.kind, "button")) {
@@ -188,7 +202,8 @@ fn build_gtk_widget(allocator: std.mem.Allocator, sched: *rx.rx_scheduler_t, def
                 .sched = sched,
                 .id = allocator.dupeZ(u8, id) catch return btn,
             };
-            gtk.connect_data(btn, "clicked", &on_button_clicked, @ptrCast(ctx));
+            // Use connect_data with destroy notify to free the context
+            _ = gtk.g_signal_connect_data(@ptrCast(btn), "clicked", @ptrCast(&on_button_clicked), ctx, @ptrCast(&free_button_context), 0);
         }
         return btn;
     } else if (std.mem.eql(u8, def.kind, "vbox") or std.mem.eql(u8, def.kind, "hbox")) {
@@ -208,16 +223,32 @@ const UpdatePayload = struct { widget_id: [:0]const u8, text: [:0]const u8 };
 
 export fn idle_draw(user_data: gtk.gpointer) callconv(.c) gtk.gboolean {
     const payload: *DrawPayload = @ptrCast(@alignCast(user_data));
-    defer std.heap.c_allocator.destroy(payload);
+    defer {
+        free_widget_def(std.heap.c_allocator, payload.layout);
+        std.heap.c_allocator.destroy(payload);
+    }
 
     if (global_window) |win| {
+        // Free old registry keys before clearing
+        var it = widget_registry.iterator();
+        while (it.next()) |entry| {
+            std.heap.c_allocator.free(entry.key_ptr.*);
+        }
         widget_registry.clearRetainingCapacity();
+
         if (build_gtk_widget(std.heap.c_allocator, payload.sched, payload.layout)) |content| {
             gtk.gtk_window_set_child(@ptrCast(win), content);
             gtk.gtk_window_present(@ptrCast(win));
         }
     }
     return 0; // remove from idle list
+}
+
+export fn free_button_context(data: gtk.gpointer, closure: ?*anyopaque) callconv(.c) void {
+    _ = closure;
+    const ctx: *ButtonContext = @ptrCast(@alignCast(data));
+    std.heap.c_allocator.free(ctx.id);
+    std.heap.c_allocator.destroy(ctx);
 }
 
 export fn idle_update(user_data: gtk.gpointer) callconv(.c) gtk.gboolean {

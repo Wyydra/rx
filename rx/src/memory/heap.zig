@@ -199,42 +199,72 @@ pub const Heap = struct {
     }
 
     pub fn copyValue(self: *Heap, value: *Value) !void {
-        if (!value.isPointer()) return;
+        if (!value.isHeapAllocated()) return;
 
-        const oldObj = value.asPointer() catch unreachable;
+        const oldObj = value.asPtr() catch unreachable;
         const newObj = try self.copyObject(oldObj);
-        value.* = Value.pointer(newObj);
+        if (value.is(.atom)) {
+            value.* = Value.atom(newObj);
+        } else {
+            value.* = Value.pointer(newObj);
+        }
+    }
+
+    pub fn scan(self: *Heap) !void {
+        const Tuple = @import("tuple.zig");
+        const Closure = @import("closure.zig");
+        const Function = @import("function.zig");
+
+        while (self.scanned_offset < self.copy_offset) {
+            const currentObjPtr = @intFromPtr(self.to_space.ptr) + self.scanned_offset;
+            const currentObj: *HeapObject = @ptrFromInt(currentObjPtr);
+
+            switch (currentObj.kind) {
+                .string, .atom => {},
+                .closure => {
+                    const env = Closure.getEnv(currentObj);
+                    for (env) |*val| try self.copyValue(val);
+
+                    const func = Closure.getFunction(currentObj);
+                    const newFunc = try self.copyObject(func);
+                    Closure.setFunction(currentObj, newFunc);
+                },
+                .function => {
+                    const constsConst = Function.getConstants(currentObj);
+                    const consts = @as([*]Value, @ptrCast(@constCast(constsConst.ptr)))[0..constsConst.len];
+                    for (consts) |*val| try self.copyValue(val);
+                },
+                .tuple => {
+                    const elems = Tuple.slice(currentObj);
+                    for (elems) |*val| try self.copyValue(val);
+                },
+            }
+
+            const totalSize = @sizeOf(HeapObject) + currentObj.size;
+            self.scanned_offset += std.mem.alignForward(usize, totalSize, 8);
+        }
     }
 
     /// Copy a Value from an external heap into THIS heap (for SEND message isolation).
     pub fn deepCopyValue(self: *Heap, src: Value) HeapError!Value {
-        if (!src.isPointer() and !src.isAtom()) return src; // Immediates safe
+        if (!src.is(.pointer) and !src.is(.atom)) return src; // Immediates safe
 
-        const srcObj = src.asPointer() catch unreachable;
+        const srcObj = src.asPtr() catch unreachable;
         const copy = try self.deepCopyObject(srcObj);
 
-        if (src.isAtom()) return Value.atom(copy);
+        if (src.is(.atom)) return Value.atom(copy);
         return Value.pointer(copy);
     }
 
     fn deepCopyObject(self: *Heap, src: *HeapObject) HeapError!*HeapObject {
-        if (src.isFrozen()) {
-            return src;
-        }
+        if (src.isFrozen()) return src;
 
-        const Tuple = @import("tuple.zig");
         const String = @import("string.zig");
+        const Tuple = @import("tuple.zig");
 
         switch (src.kind) {
-            .string => {
-                // Re-intern the string in this heap (deduplicates automatically)
-                const chars = String.getChars(src);
-                return self.createString(chars);
-            },
-            .atom => {
-                const chars = String.getChars(src);
-                return self.createAtom(chars);
-            },
+            .string => return self.createString(String.getChars(src)),
+            .atom => return self.createAtom(String.getChars(src)),
             .tuple => {
                 const src_elems = Tuple.slice(src);
                 const dst_obj = try self.allocUnsafe(.tuple, src_elems.len * @sizeOf(Value));
@@ -244,9 +274,6 @@ pub const Heap = struct {
                 }
                 return dst_obj;
             },
-            // Closures and functions should not be sent between processes
-            // (they contain code pointers that are valid for all processes)
-            // so we simply share the pointer as read-only.
             .closure, .function => return src,
         }
     }

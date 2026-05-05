@@ -9,7 +9,7 @@ const loader = @import("loader.zig");
 
 pub const VM = struct {
     system: System,
-    scheduler: Scheduler,
+    scheduler: *Scheduler,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !*VM {
@@ -18,15 +18,19 @@ pub const VM = struct {
 
         self.allocator = allocator;
         self.system = System.init(allocator, io);
-        self.scheduler = Scheduler.init(allocator, 0, &self.system, io);
+        self.scheduler = try allocator.create(Scheduler);
+        errdefer allocator.destroy(self.scheduler);
+
+        self.scheduler.* = Scheduler.init(allocator, 0, &self.system, io);
 
         return self;
     }
 
     pub fn deinit(self: *VM) void {
-        self.scheduler.deinit();
         self.system.teardownPorts(self.scheduler.io, &self.scheduler.port_group);
+        self.scheduler.deinit();
         self.system.deinit();
+        self.allocator.destroy(self.scheduler);
         self.allocator.destroy(self);
     }
 
@@ -40,7 +44,7 @@ pub const VM = struct {
         const dynamic_lib = res[0];
         const load_fn = res[1];
         try self.system.dynamic_libraries.append(self.allocator, dynamic_lib);
-        load_fn(@ptrCast(&self.scheduler));
+        load_fn(@ptrCast(self.scheduler));
     }
 
     pub fn execute(self: *VM) !void {

@@ -54,10 +54,10 @@ const Compiler = struct {
 
         // Pass 2: Patch all references to placeholders with the real function pointers
         for (compiled_funcs.items) |func_obj| {
-            const mut_consts = rx.memory.Function.getConstantsMut(func_obj);
-            for (mut_consts) |*c| {
-                if (c.isPointer()) {
-                    const ptr = c.asPointer() catch unreachable;
+            const constants = rx.memory.Function.getConstantsMut(func_obj);
+            for (constants) |*c| {
+                if (c.is(.pointer)) {
+                    const ptr = c.asPtr() catch unreachable;
                     if (placeholders.get(ptr)) |real| {
                         c.* = rx.memory.Value.pointer(real);
                     }
@@ -86,7 +86,7 @@ const Compiler = struct {
 
         const mut_consts = rx.memory.Function.getConstantsMut(real_func);
         for (mut_consts) |*c| {
-            if (c.isPointer() and (c.asPointer() catch unreachable) == placeholder_func) {
+            if (c.is(.pointer) and (c.asPtr() catch unreachable) == placeholder_func) {
                 c.* = rx.memory.Value.pointer(real_func);
             }
         }

@@ -1,45 +1,67 @@
-module TestModule
+module Test
 
-; Bindings
-x = 42
-name = "Suro"
-status = :active
-negative_number = -100
+;; 1. Définition de types (Patterns)
+Point = [x~int, y~int]
+User  = [name~string, score~int, pos~Point]
 
-; A compound data type (like a struct/record)
-player = [name: "Rox", health: 100, position: [10, 20]]
-
-; A sum type / tagged tuple
-event = [:key_down, :left]
-
-; Function definition
-add = (a, b) a + b
-greet = (name) "Hello, " + name
-
-; Function call
-sum = add(5, 10)
-greeting = greet("World")
-
-; UFCS (Uniform Function Call Syntax)
-eleven = 10:add(1) ; equivalent to add(10, 1)
-
-; Blocks and local scope
-result = {
-    a = 5
-    b = 10
-    a + b ; this is the return value of the block
+;; 2. Initialisation de l'état de l'acteur
+;; Retourne l'état initial : un record User
+init = (name) {
+    User[name: name, score: 0, pos: [x: 0, y: 0]]
 }
 
-; Pattern matching
-match_result = match event with
-| [:key_down, :left]  -> "Player moved left"
-| [:key_down, :right] -> "Player moved right"
-| [:key_up, _]        -> "Player released a key"
-| _                   -> "Unknown event"
+;; 3. Logique de l'acteur (Macro-matching)
+;; Chaque fonction on_msg prend (état_actuel, message)
+;; et retourne le nouvel état.
 
+;; Match sur un atome simple
+on_msg = (s~User, #ping) {
+    print("pong")
+    s ;; Retourne l'état inchangé
+}
 
-; Destructuring bind
-[:coords, cx, cy] = [:coords, 50, 100]
+;; Match structurel : mise à jour de la position
+on_msg = (s~User, [#move, dx~int, dy~int]) {
+    new_pos = [x: s.pos.x + dx, y: s.pos.y + dy]
+    s[pos: new_pos] ;; Update fonctionnel
+}
 
-; Actor-style message (just a tuple)
-msg = [:register, self(), :rect, 400, 300]
+;; Utilisation du Pinning (^)
+;; On ne réagit qu'aux messages venant d'un ID spécifique
+on_msg = (s~User, [#reset, ^s.name]) {
+    s[score: 0]
+}
+
+;; Match avec logique locale (Micro-match)
+on_msg = (s~User, [#bonus, amount]) {
+    match amount {
+        a~int { 
+            print("Adding bonus")
+            s[score: s.score + a]
+        }
+        _ {
+            print("Invalid amount")
+            s
+        }
+    }
+}
+
+;; Catch-all
+on_msg = (s, _) s
+
+;; 4. Exemple d'appel UFCS et dualité
+test_logic = () {
+    ;; Construction
+    p = Point[x: 10, y: 20]
+    
+    ;; Unboxing via pattern matching local
+    [px, py] = p
+    
+    ;; UFCS
+    p:print_pos()
+}
+
+print_pos = (p~Point) {
+    print("X: " + p.x)
+    print("Y: " + p.y)
+}

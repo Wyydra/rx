@@ -25,11 +25,11 @@ pub const ProcessQueue = struct {
             .allocator = allocator,
         };
     }
-    
+
     pub fn deinit(self: *ProcessQueue) void {
         self.allocator.free(self.buf);
     }
-    
+
     pub fn push(self: *ProcessQueue, value: *Process) !void {
         if (self.count == self.buf.len) {
             const new_cap = @max(self.buf.len * 2, 8);
@@ -44,7 +44,7 @@ pub const ProcessQueue = struct {
         self.tail = (self.tail + 1) % self.buf.len;
         self.count += 1;
     }
-    
+
     pub fn pop(self: *ProcessQueue) ?*Process {
         if (self.count == 0) return null;
         const val = self.buf[self.head];
@@ -83,7 +83,7 @@ pub const Scheduler = struct {
 
     pub fn init(allocator: std.mem.Allocator, id: u8, system: *System, io: std.Io) Scheduler {
         return .{
-            .registry = .init(allocator),
+            .registry = std.AutoHashMap(ActorId, Receiver).init(allocator),
             .run_queue = ProcessQueue.init(allocator, 1024) catch unreachable,
             .waiting_queue = .{},
             .mutex = std.Io.Mutex.init,
@@ -113,7 +113,7 @@ pub const Scheduler = struct {
         const pid = self.nextId();
 
         const proc = try Process.init(self.allocator, self.io, pid, main_func, args);
-        
+
         self.mutex.lockUncancelable(self.io);
         try self.registry.put(pid, proc.asReceiver());
         self.run_queue.push(proc) catch @panic("OOM in run_queue");
@@ -175,7 +175,31 @@ pub const Scheduler = struct {
             };
             self.mutex.unlock(self.io);
 
-            const result = Cpu.run(process, REDUCTION_LIMIT, self);
+            const env = Cpu.Environment{
+                .ptr = self,
+                .vtable = &.{
+                    .send = struct {
+                        fn wrapper(ptr: *anyopaque, target: ActorId, msg: Value) void {
+                            const sched = @as(*Scheduler, @ptrCast(@alignCast(ptr)));
+                            sched.send(target, msg);
+                        }
+                    }.wrapper,
+                    .spawn = struct {
+                        fn wrapper(ptr: *anyopaque, func: *HeapObject, args: []const Value) anyerror!ActorId {
+                            const sched = @as(*Scheduler, @ptrCast(@alignCast(ptr)));
+                            return sched.spawn(func, args);
+                        }
+                    }.wrapper,
+                    .resolve = struct {
+                        fn wrapper(ptr: *anyopaque, name: []const u8) ?ActorId {
+                            const sched = @as(*Scheduler, @ptrCast(@alignCast(ptr)));
+                            return sched.resolve(name);
+                        }
+                    }.wrapper,
+                },
+            };
+
+            const result = Cpu.run(process, REDUCTION_LIMIT, env);
 
             switch (result.state) {
                 .normal => {

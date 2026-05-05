@@ -55,6 +55,7 @@ pub const System = struct {
         };
         for (self.ports.items) |p| {
             if (p.deinit) |f| f(p.context);
+            p.mailbox.deinit();
             self.allocator.destroy(p);
         }
         self.ports.deinit(self.allocator);

@@ -122,12 +122,8 @@ export fn rx_register_port(
 export fn rx_port_send_external(sched_ptr: *anyopaque, target_id: u32, msg: Value) callconv(.c) void {
     const sched: *Scheduler = @ptrCast(@alignCast(sched_ptr));
 
-    if (sched.registry.get(ActorId.fromInt(target_id))) |receiver| {
-        _ = receiver.send(msg, sched);
-        sched.io_event.set(sched.io); // Always wake up in case VM was sleeping
-    } else {
-        std.log.err("rx_port_send_external: Failed to find target ActorId {}", .{target_id});
-    }
+    sched.send(ActorId.fromInt(target_id), msg);
+    sched.io_event.set(sched.io); // Always wake up in case VM was sleeping
 }
 
 export fn rx_value_free(alloc: *std.mem.Allocator, v: Value) callconv(.c) void {
@@ -158,41 +154,41 @@ export fn rx_make_tuple(alloc: *std.mem.Allocator, elements: [*]const Value, len
 }
 
 export fn rx_is_nil(v: Value) callconv(.c) bool {
-    return v.isNil();
+    return v.is(.nil);
 }
 export fn rx_is_bool(v: Value) callconv(.c) bool {
-    return v.isBoolean();
+    return v.is(.boolean);
 }
 export fn rx_is_int(v: Value) callconv(.c) bool {
-    return v.isInteger();
+    return v.is(.integer);
 }
 export fn rx_is_pointer(v: Value) callconv(.c) bool {
-    return v.isPointer() or v.isAtom();
+    return v.is(.pointer) or v.is(.atom);
 }
 export fn rx_is_string(v: Value) callconv(.c) bool {
     return v.isString();
 }
 export fn rx_is_atom(v: Value) callconv(.c) bool {
-    return v.isAtom();
+    return v.is(.atom);
 }
 
 /// Polymorphic data/length for string or atom. Returns NULL/0 if not a string or atom.
 export fn rx_val_cstr(v: Value) callconv(.c) ?[*]const u8 {
     if (!v.isHeapAllocated()) return null;
-    const obj = v.asPointer() catch return null;
+    const obj = v.asPtr() catch return null;
     return String.getChars(obj).ptr;
 }
 
 export fn rx_val_len(v: Value) callconv(.c) usize {
     if (!v.isHeapAllocated()) return 0;
-    const obj = v.asPointer() catch return 0;
+    const obj = v.asPtr() catch return 0;
     return String.getChars(obj).len;
 }
 
 /// Polymorphic equality check for string or atom against a null-terminated C string.
 export fn rx_val_eq_str(v: Value, s: [*:0]const u8) callconv(.c) bool {
     const v_data: []const u8 = if (v.isHeapAllocated()) blk: {
-        const obj = v.asPointer() catch return false;
+        const obj = v.asPtr() catch return false;
         if (obj.kind != .string and obj.kind != .atom) return false;
         break :blk String.getChars(obj);
     } else return false;
@@ -227,12 +223,12 @@ export fn rx_atom_len(v: Value) callconv(.c) usize {
 }
 
 export fn rx_tuple_len(v: Value) callconv(.c) u32 {
-    const obj = v.asPointer() catch return 0;
+    const obj = v.asPtr() catch return 0;
     if (obj.kind != .tuple) return 0;
     return Tuple.getCount(obj);
 }
 export fn rx_tuple_get(v: Value, index: u32) callconv(.c) Value {
-    const obj = v.asPointer() catch return Value.nil();
+    const obj = v.asPtr() catch return Value.nil();
     if (obj.kind != .tuple) return Value.nil();
     if (index >= Tuple.getCount(obj)) return Value.nil();
     return Tuple.getValue(obj, index);
@@ -254,18 +250,18 @@ export fn rx_match_tuple(msg: Value, cmd_name: [*:0]const u8, fmt: [*:0]const u8
 
         switch (fmt[i]) {
             'i' => {
-                if (!v.isInteger()) return false;
+                if (!v.is(.integer)) return false;
                 const ptr = @cVaArg(&args, *i64);
                 ptr.* = v.asInteger() catch unreachable;
             },
             'b' => {
-                if (!v.isBoolean()) return false;
+                if (!v.is(.boolean)) return false;
                 const ptr = @cVaArg(&args, *bool);
                 ptr.* = v.asBoolean() catch unreachable;
             },
             'f' => {
                 // We allow integers to be matched as floats (f64) for ergonomics
-                if (!v.isInteger()) return false;
+                if (!v.is(.integer)) return false;
                 const ptr = @cVaArg(&args, *f64);
                 ptr.* = @floatFromInt(v.asInteger() catch unreachable);
             },
@@ -276,7 +272,7 @@ export fn rx_match_tuple(msg: Value, cmd_name: [*:0]const u8, fmt: [*:0]const u8
                 ptr.* = s.ptr;
             },
             'a' => {
-                if (!v.isAtom()) return false;
+                if (!v.is(.atom)) return false;
                 const ptr = @cVaArg(&args, *?[*]const u8);
                 const s = v.asAtom() catch unreachable;
                 ptr.* = s.ptr;

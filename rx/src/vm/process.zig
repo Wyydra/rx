@@ -3,7 +3,6 @@ const Value = @import("../memory/value.zig").Value;
 const HeapObject = @import("../memory/value.zig").HeapObject;
 const Function = @import("../memory/function.zig");
 const Closure = @import("../memory/closure.zig");
-const Tuple = @import("../memory/tuple.zig");
 const Receiver = @import("interface.zig").Receiver;
 const Scheduler = @import("scheduler.zig").Scheduler;
 const ActorId = @import("actor.zig").ActorId;
@@ -124,8 +123,7 @@ pub const Process = struct {
         }
     }
 
-    pub fn pop(self: *Process, io: std.Io) !?Value {
-        _ = io;
+    pub fn pop(self: *Process) !?Value {
         return self.mailbox.get();
     }
 
@@ -162,46 +160,13 @@ pub const Process = struct {
         if (!self.mailbox.isEmpty()) {
             var mailbox_it = self.mailbox.iterator();
             while (mailbox_it.next()) |data_ptr| {
-                if (!data_ptr.isNil()) {
+                if (!data_ptr.is(.nil)) {
                     try heap.copyValue(data_ptr);
                 }
             }
         }
 
-        while (heap.scanned_offset < heap.copy_offset) {
-            const currentObjPtr = @intFromPtr(heap.to_space.ptr) + heap.scanned_offset;
-            const currentObj: *HeapObject = @ptrFromInt(currentObjPtr);
-
-            switch (currentObj.kind) {
-                .string, .atom => {},
-                .closure => {
-                    const env = Closure.getEnv(currentObj);
-                    for (env) |*val| {
-                        try heap.copyValue(val);
-                    }
-
-                    const func = Closure.getFunction(currentObj);
-                    const newFunc = try heap.copyObject(func);
-                    Closure.setFunction(currentObj, newFunc);
-                },
-                .function => {
-                    const constsConst = Function.getConstants(currentObj);
-                    const consts = @as([*]Value, @ptrCast(@constCast(constsConst.ptr)))[0..constsConst.len];
-                    for (consts) |*val| {
-                        try heap.copyValue(val);
-                    }
-                },
-                .tuple => {
-                    const elems = Tuple.slice(currentObj);
-                    for (elems) |*val| {
-                        try heap.copyValue(val);
-                    }
-                },
-            }
-
-            const totalSize = @sizeOf(HeapObject) + currentObj.size;
-            heap.scanned_offset += std.mem.alignForward(usize, totalSize, 8);
-        }
+        try heap.scan();
 
         var newStrings = std.StringHashMap(*HeapObject).init(heap.backing_allocator);
 
@@ -272,5 +237,14 @@ pub const Process = struct {
 
     pub fn markWaiting(self: *Process) void {
         self.status = .waiting;
+    }
+
+    pub fn ensureStack(self: *Process, min_len: usize) !void {
+        if (self.stack.items.len < min_len) {
+            const old_len = self.stack.items.len;
+            const target_len = @max(min_len, old_len + 128);
+            try self.stack.resize(self.allocator, target_len);
+            for (self.stack.items[old_len..]) |*slot| slot.* = Value.nil();
+        }
     }
 };

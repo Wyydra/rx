@@ -18,14 +18,11 @@ pub fn getCount(obj: *const HeapObject) u32 {
 
 pub fn slice(obj: *HeapObject) []Value {
     std.debug.assert(obj.kind == .tuple);
-    const ptr: [*]Value = @ptrCast(@alignCast(@as([*]u8, @ptrCast(obj)) + @sizeOf(HeapObject)));
-    return ptr[0..getCount(obj)];
+    return obj.payload(Value)[0..getCount(obj)];
 }
 
 pub fn getValue(obj: *const HeapObject, index: u32) Value {
     std.debug.assert(obj.kind == .tuple);
     std.debug.assert(index < getCount(obj));
-    // Re-use slice() logic via a mutable cast — safe because we only read.
-    const ptr: [*]const Value = @ptrCast(@alignCast(@as([*]const u8, @ptrCast(obj)) + @sizeOf(HeapObject)));
-    return ptr[index];
+    return obj.payload(Value)[index];
 }

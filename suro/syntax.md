@@ -1,100 +1,101 @@
 # Suro Syntax
 
-Suro is a minimalist, functional, and actor-oriented language. It is built on a single, unified logic: **The Pattern Duality.**
+Suro is a minimalist, functional, and actor-oriented language built on **Pattern Duality.**
 
 ## Core Principles
 
-- **The Pattern:** A description of structure (e.g., `x~int, y~int`).
-- **`()` Unboxed (Transient):** A pattern in flight (arguments, registers, stack).
-- **`[]` Boxed (Persistent):** A pattern in memory (heap, messages, records).
-- **`~` Constraint:** Matches a value against a pattern (`value ~ pattern`).
-- **`#` Atom:** A global, unique constant (e.g., `#active`, `#ok`).
-- **`^` Pin:** Forces a pattern to match an existing variable's value.
-- **`=` Binding:** Assigns a value or a pattern to a name.
-- **`:` UFCS / Key-Value:** Used for keyed data (`key: value`) and method chaining (`obj:call()`).
+- **The Pattern:** A structure description (e.g., `x~int, y~int`).
+- **`()` Unboxed (Transient):** Patterns in flight (arguments, stack).
+- **`[]` Boxed (Persistent):** Patterns in memory (records, messages).
+- **`~` Constraint:** Value matching (`value ~ pattern`).
+- **`#` Atom:** Unique constant (`#ok`, `#error`).
+- **`^` Pin:** Match against an existing variable's value.
+- **`=` Binding:** Assignment.
+- **`:` UFCS / Key-Value:** Method chaining and record keys.
 
 ---
 
-## 1. Pattern Duality
+## 1. Actor State & Dispatch
 
-Suro unifies types and data under **Patterns**. The brackets determine the "storage mode":
-
-- **Unboxed `()`**: Transient data (function arguments).
-- **Boxed `[]`**: Persistent data (records, messages, memory).
-
-## 2. Functions and Dispatch (Macro Logic)
-
-In Suro, an Actor's logic is defined by multiple functions. The system automatically dispatches incoming messages to the first matching function.
+Actors handle messages by matching against function signatures. An actor's state is preserved by returning the new state from the message handler.
 
 ```suro
-// The system unboxes incoming messages into the function pattern
-player_loop = ([#key_down, #left])  { physics:move(-200) }
-player_loop = ([#key_down, #right]) { physics:move(200) }
-player_loop = (_)                   { () }
+// State pattern
+State = [hp~int, score~int]
+
+// init returns the starting state
+init = () [hp: 100, score: 0]
+
+// on_msg matches (current_state, incoming_message)
+// Returning a value updates the actor's state.
+on_msg = (s~State, [#hit, dmg]) s[hp: s.hp - dmg]
+on_msg = (s~State, [#get_score]) {
+    print(s.score)
+    s // Return state unchanged
+}
 ```
 
-## 3. Local Pattern Matching (Micro Logic)
+## 2. Functions (Macro Logic)
 
-To deconstruct boxed data inside a function, use the `match` keyword.
+Function parameters are unboxed patterns. Multiple definitions enable dispatch.
 
 ```suro
-connect = (config~Config) {
-    match db:init(config) {
-        [#ok, conn]  -> conn:start_pool()
-        [#err, msg]  -> log:error(msg)
+// Unboxed integer match
+add = (x~int, y~int) x + y
+
+// Boxed record match
+draw = (p~[x~int, y~int]) {
+    ui:send([#draw_rect, p.x, p.y])
+}
+```
+
+## 3. Local Matching (Micro Logic)
+
+Use `match` to deconstruct data locally. No arrow `->` is needed; the pattern and expression are adjacent.
+
+```suro
+handle_res = (res) {
+    match res {
+        [#ok, val]  print("Success: " + val)
+        [#err, msg] log:error(msg)
     }
 }
 ```
 
 ## 4. Pinning `^`
 
-In a pattern, an identifier usually creates a new binding. Use `^` to match against the value of an existing variable.
-
 ```suro
-target = #user_1
-handle = ([#update, ^target, data]) { 
-    // Matches only if the second element is #user_1
-    save(data)
-}
+admin_id = #id_001
+check_auth = ([#login, ^admin_id]) print("Admin logged in")
 ```
 
-## 5. Types as Patterns
+## 5. Record Updates
 
-A "Type" is simply a name bound to a pattern.
+Suro uses functional updates for records.
 
 ```suro
-Point = [x~int, y~int]
-
-// Usage as constraint
-draw = (p~Point) { ... }
-
-// Usage as constructor
-p = Point[x: 10, y: 20]
+p1 = [x: 10, y: 20]
+p2 = p1[x: 30] // p2 is [x: 30, y: 20]
 ```
 
-## 6. Uniform Function Call Syntax (UFCS) `:`
-
-The `:` operator passes the left-hand side as the first argument to the right-hand side function.
+## 6. Complete Actor Example
 
 ```suro
-user = User[name: "Gabbro"]
-user:print() // equivalent to print(user)
-```
+module Entity
 
-## 7. Complete Actor Example
+State = [pos~[int, int], health~int]
 
-```suro
-module Game
+init = (x, y) [pos: [x, y], health: 100]
 
-// Constructor-like logic
-init = (game) {
-    me = self()
-    game:send([#register, me, #rect, 400, 300])
+// Logic
+on_msg = (s~State, [#move, dx, dy]) {
+    new_pos = [s.pos.0 + dx, s.pos.1 + dy]
+    s[pos: new_pos]
 }
 
-// Actor message handling via multiple dispatch
-on_msg = ([#key_down, #left])  { game:send([#physics, self(), -200, 0]) }
-on_msg = ([#key_down, #right]) { game:send([#physics, self(), 200, 0]) }
-on_msg = ([#collide, ^other])  { game:send([#shake, 15]) }
-on_msg = (_)                   { () }
+on_msg = (s~State, [#damage, d]) {
+    s[health: s.health - d]
+}
+
+on_msg = (s~State, _) s
 ```
