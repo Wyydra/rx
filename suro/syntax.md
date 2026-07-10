@@ -51,7 +51,7 @@ draw = (p~[x~int, y~int]) {
 
 ## 3. Local Matching (Micro Logic)
 
-Use `match` to deconstruct data locally. No arrow `->` is needed; the pattern and expression are adjacent.
+Use `match` to deconstruct data locally. 
 
 ```suro
 handle_res = (res) {
